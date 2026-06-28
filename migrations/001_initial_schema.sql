@@ -1,12 +1,15 @@
--- participants
+-- participants (user_id matches auth.users; slot/condition assigned at signup)
 create table if not exists participants (
-  id uuid primary key references auth.users(id) on delete cascade,
-  username text unique not null,
-  created_at timestamptz default now()
+  user_id      uuid primary key references auth.users(id) on delete cascade,
+  username     text unique not null,
+  slot_id      int,   -- filled in by claim_condition_slot()
+  condition_id int,   -- filled in by claim_condition_slot()
+  consented_at timestamptz,
+  created_at   timestamptz not null default now()
 );
 alter table participants enable row level security;
 create policy "Users can view own row" on participants
-  for select using (auth.uid() = id);
+  for select using (auth.uid() = user_id);
 
 -- consent_responses
 create table if not exists consent_responses (

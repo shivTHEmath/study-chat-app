@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git commit -q -m ' *)",
+      "Bash(git add *)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__get_publishable_keys",
+      "Bash(curl -s -X POST http://localhost:3100/api/register-participant -H 'Content-Type: application/json' -d '{\"username\":\"testflow1\",\"password\":\"testpass123\"}' -w '\\\\n[%{http_code}]\\\\n')",
+      "Bash(curl -s -X POST http://localhost:3100/api/register-participant -H 'Content-Type: application/json' -d '{\"username\":\"uitester\",\"password\":\"testpass123\"}' -w '\\\\n[%{http_code}]\\\\n')"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

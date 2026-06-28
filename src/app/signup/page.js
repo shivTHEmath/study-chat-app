@@ -21,28 +21,11 @@ export default function SignupPage() {
     setLoading(true)
 
     try {
-      // 1. Validate invite code + capacity via our API route (server checks the real secret + count)
-      const checkRes = await fetch('/api/check-invite', {
+      // Single API call: validates invite code, creates auth user, claims condition slot atomically
+      const registerRes = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inviteCode }),
-      })
-      const checkData = await checkRes.json()
-
-      if (!checkRes.ok) {
-        setError(checkData.error || 'Invite code check failed.')
-        setLoading(false)
-        return
-      }
-
-      // 2. Create the auth user + participant row server-side. The account is
-      // created with the admin API (email auto-confirmed, no email sent); the
-      // public client-side signUp can't be used because it rejects the synthetic
-      // address and would try to send a confirmation email.
-      const registerRes = await fetch('/api/register-participant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, inviteCode }),
       })
 
       if (!registerRes.ok) {
@@ -52,7 +35,7 @@ export default function SignupPage() {
         return
       }
 
-      // 3. Sign in to establish a session, then continue into the study.
+      // Sign in to establish a session, then continue into the study.
       const supabase = createClient()
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: usernameToEmail(username),
