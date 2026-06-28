@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Masthead, StudyFooter, CenteredPage } from '@/components/StudyChrome'
+import { Masthead, StudyFooter, AuthSplitLayout } from '@/components/StudyChrome'
 
 export default function SignupPage() {
   const [inviteCode, setInviteCode] = useState('')
@@ -72,7 +72,7 @@ export default function SignupPage() {
   }
 
   return (
-    <CenteredPage>
+    <AuthSplitLayout>
       <Masthead subtitle="Create your participant account" />
 
       <div className="card p-7">
@@ -141,6 +141,6 @@ export default function SignupPage() {
       </div>
 
       <StudyFooter />
-    </CenteredPage>
+    </AuthSplitLayout>
   )
 }
