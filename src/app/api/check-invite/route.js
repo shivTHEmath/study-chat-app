@@ -16,7 +16,7 @@ export async function POST(request) {
     return Response.json({ error: 'Could not verify capacity.' }, { status: 500 })
   }
 
-  const maxParticipants = parseInt(process.env.MAX_PARTICIPANTS || '100', 10)
+  const maxParticipants = parseInt(process.env.STUDY_MAX_PARTICIPANTS || '100', 10)
   if (count >= maxParticipants) {
     return Response.json({ error: 'This study has reached its participant limit.' }, { status: 403 })
   }

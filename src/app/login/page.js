@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { usernameToEmail } from '@/lib/usernameEmail'
 import { Masthead, StudyFooter, AuthSplitLayout } from '@/components/StudyChrome'
 
 export default function LoginPage() {
@@ -19,10 +20,9 @@ export default function LoginPage() {
     setLoading(true)
 
     const supabase = createClient()
-    const fakeEmail = `${username.toLowerCase()}@study.local`
 
     const { error: loginError } = await supabase.auth.signInWithPassword({
-      email: fakeEmail,
+      email: usernameToEmail(username),
       password,
     })
 
@@ -53,6 +53,7 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
+              placeholder="e.g. fifacup30"
               className="field"
             />
           </div>

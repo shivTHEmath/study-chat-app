@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { usernameToEmail } from '@/lib/usernameEmail'
 import { Masthead, StudyFooter, AuthSplitLayout } from '@/components/StudyChrome'
 
 export default function SignupPage() {
@@ -34,27 +35,14 @@ export default function SignupPage() {
         return
       }
 
-      // 2. Create the Supabase auth user (we use username@study.local as a fake email
-      // since Supabase Auth requires an email-shaped identifier internally)
-      const supabase = createClient()
-      const fakeEmail = `${username.toLowerCase()}@study.local`
-
-      const { data, error: signupError } = await supabase.auth.signUp({
-        email: fakeEmail,
-        password,
-      })
-
-      if (signupError) {
-        setError(signupError.message)
-        setLoading(false)
-        return
-      }
-
-      // 3. Register the participant row (username + id) via API route (uses admin client)
+      // 2. Create the auth user + participant row server-side. The account is
+      // created with the admin API (email auto-confirmed, no email sent); the
+      // public client-side signUp can't be used because it rejects the synthetic
+      // address and would try to send a confirmation email.
       const registerRes = await fetch('/api/register-participant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: data.user.id, username }),
+        body: JSON.stringify({ username, password }),
       })
 
       if (!registerRes.ok) {
@@ -64,7 +52,20 @@ export default function SignupPage() {
         return
       }
 
-      router.push('/survey')
+      // 3. Sign in to establish a session, then continue into the study.
+      const supabase = createClient()
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: usernameToEmail(username),
+        password,
+      })
+
+      if (signInError) {
+        setError('Account created, but sign in failed. Please try logging in.')
+        setLoading(false)
+        return
+      }
+
+      router.push('/chat')
     } catch (err) {
       setError('Something went wrong. Please try again.')
       setLoading(false)
@@ -105,6 +106,7 @@ export default function SignupPage() {
               onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
               required
               minLength={3}
+              placeholder="e.g. fifacup30"
               className="field"
             />
             <p className="text-xs text-faint mt-1.5">
