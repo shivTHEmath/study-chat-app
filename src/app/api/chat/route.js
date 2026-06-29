@@ -229,14 +229,33 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     initialHintDelaySeconds: hintState.initialHintDelaySeconds,
     midProblemDelaySeconds: hintState.midProblemDelaySeconds,
     hintCount: attempt?.hint_count || 0,
+    maxHints: hintState.maxHints,
+    hintsExhausted: hintState.hintsExhausted,
     metacognitivePromptDue,
     conversation: body.conversation,
   })
 
-  const tutorMessage = await askTutor(runtimeContext, body.studentMessage)
+  const modelText = await askTutor(runtimeContext, body.studentMessage)
+  const parsed = parseFollowUpResponse(modelText)
+  const tutorMessage = parsed.message
 
-  if (attempt?.id && requestedHint && hintState.hintAllowed) {
+  // ── Persist accurate counters based on model's self-reported flags ──────────
+
+  if (attempt?.id && parsed.hintGiven) {
     await incrementHintCount(admin, attempt.id)
+  }
+
+  if (attempt?.id && parsed.metacognitivePromptIncluded) {
+    await incrementMcpCount(admin, attempt.id, userId)
+  }
+
+  // ── Problem completion ───────────────────────────────────────────────────────
+  // When the model signals the student has arrived at the correct answer:
+  //   • increment problems_completed on the participant row
+  //   • reset per-problem metacognitive_prompt_count is implicit (the next
+  //     attempt will start a fresh row); we just bump the participant counter.
+  if (parsed.isProblemComplete && attempt?.id) {
+    await completeProblem(admin, userId, participantCounters.problems_completed)
   }
 
   await logQuestion(admin, userId, displayProblem, tutorMessage)
@@ -244,7 +263,9 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   return Response.json({
     attemptId: attempt?.id || null,
     displayProblem,
+    isProblemComplete: parsed.isProblemComplete,
     hintAllowed: hintState.hintAllowed,
+    hintsExhausted: hintState.hintsExhausted,
     nextHintAvailableAt: hintState.nextHintAvailableAt,
     clockState,
     runtime: {
@@ -252,6 +273,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
       initialHintDelaySeconds: hintState.initialHintDelaySeconds,
       midProblemDelaySeconds: hintState.midProblemDelaySeconds,
       hintCount: attempt?.hint_count || 0,
+      maxHints: hintState.maxHints,
       secondsSinceStarted: hintState.secondsSinceStarted,
       secondsUntilHint: hintState.secondsUntilHint,
     },
@@ -457,6 +479,61 @@ async function incrementHintCount(admin, attemptId) {
   }
 }
 
+// Increments metacognitive_prompt_count on the attempt AND
+// total_metacognitive_prompts_given on the participant row.
+async function incrementMcpCount(admin, attemptId, userId) {
+  const { data, error: readError } = await admin
+    .from('problem_attempts')
+    .select('metacognitive_prompt_count')
+    .eq('id', attemptId)
+    .single()
+
+  if (readError) {
+    console.error('[api/chat] mcp count read failed:', readError.message)
+    return
+  }
+
+  const newCount = Number(data?.metacognitive_prompt_count || 0) + 1
+
+  const [{ error: attemptErr }, { error: participantErr }] = await Promise.all([
+    admin
+      .from('problem_attempts')
+      .update({ metacognitive_prompt_count: newCount, updated_at: new Date().toISOString() })
+      .eq('id', attemptId),
+    admin.rpc('increment_mcp_total', { p_user_id: userId }).catch(() =>
+      // Fallback if RPC doesn't exist: read-then-write (race-safe enough for study use)
+      admin
+        .from('participants')
+        .select('total_metacognitive_prompts_given')
+        .eq('user_id', userId)
+        .single()
+        .then(({ data: p }) =>
+          admin
+            .from('participants')
+            .update({ total_metacognitive_prompts_given: Number(p?.total_metacognitive_prompts_given || 0) + 1 })
+            .eq('user_id', userId)
+        )
+    ),
+  ])
+
+  if (attemptErr) console.error('[api/chat] mcp attempt update failed:', attemptErr.message)
+  if (participantErr) console.error('[api/chat] mcp participant update failed:', participantErr.message)
+}
+
+// Marks the current problem as solved: increments problems_completed on the
+// participant row. The attempt itself is left open (no is_complete column
+// needed) — the next new_problem call starts a fresh attempt row.
+async function completeProblem(admin, userId, currentProblemsCompleted) {
+  const { error } = await admin
+    .from('participants')
+    .update({ problems_completed: Number(currentProblemsCompleted || 0) + 1 })
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('[api/chat] completeProblem update failed:', error.message)
+  }
+}
+
 async function logQuestion(admin, userId, question, response) {
   const { error } = await admin.from('questions').insert({
     user_id: userId,
@@ -475,6 +552,29 @@ function extractText(response) {
     .map((part) => part.text)
     .join('\n')
     .trim()
+}
+
+// Parses the structured JSON the model returns for every follow-up turn.
+// Falls back gracefully: if JSON is missing or malformed, treats the whole
+// response as the message and leaves all flags false.
+function parseFollowUpResponse(text) {
+  const fallback = { message: String(text || '').trim(), isProblemComplete: false, hintGiven: false, metacognitivePromptIncluded: false }
+
+  try {
+    const parsed = JSON.parse(stripCodeFence(text))
+    if (typeof parsed?.message === 'string') {
+      return {
+        message: parsed.message.trim(),
+        isProblemComplete: Boolean(parsed.isProblemComplete),
+        hintGiven: Boolean(parsed.hintGiven),
+        metacognitivePromptIncluded: Boolean(parsed.metacognitivePromptIncluded),
+      }
+    }
+  } catch {
+    // Model returned plain text — use it as-is.
+  }
+
+  return fallback
 }
 
 function parseNewProblemResponse(text) {
@@ -513,7 +613,16 @@ function getHintState(attempt, condition, difficulty) {
   const secondsSinceStarted = attempt?.started_at
     ? Math.max(0, Math.floor((Date.now() - new Date(attempt.started_at).getTime()) / 1000))
     : 0
-  const hasGivenHint = Number(attempt?.hint_count || 0) > 0
+  const hintCount = Number(attempt?.hint_count || 0)
+  const hasGivenHint = hintCount > 0
+
+  // 80% cap: hints stop once the cumulative AS% would exceed 80.
+  // effectiveAS is already faded (stored in condition.as_value by the caller).
+  // We round down (floor), minimum 1 so every student can get at least one hint.
+  const effectiveAS = Number(condition.as_value) || 30
+  const maxHints = Math.max(1, Math.floor(80 / effectiveAS))
+  const hintsExhausted = hintCount >= maxHints
+
   const nextDelay = hasGivenHint
     ? midProblemDelaySeconds
     : initialHintDelaySeconds
@@ -521,11 +630,14 @@ function getHintState(attempt, condition, difficulty) {
   const secondsSinceReference = referenceTime
     ? Math.max(0, Math.floor((Date.now() - new Date(referenceTime).getTime()) / 1000))
     : 0
-  const hintAllowed = secondsSinceReference >= nextDelay
+  // Hint is allowed only if the delay has elapsed AND the cap is not reached.
+  const hintAllowed = !hintsExhausted && secondsSinceReference >= nextDelay
   const secondsUntilHint = hintAllowed ? 0 : Math.max(0, nextDelay - secondsSinceReference)
 
   return {
     hintAllowed,
+    hintsExhausted,
+    maxHints,
     initialHintDelaySeconds,
     midProblemDelaySeconds,
     secondsSinceStarted,

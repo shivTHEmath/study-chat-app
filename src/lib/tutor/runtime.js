@@ -38,6 +38,8 @@ export function buildRuntimeContext({
   initialHintDelaySeconds,
   midProblemDelaySeconds,
   hintCount,
+  maxHints,
+  hintsExhausted,
   metacognitivePromptDue,
   conversation,
 }) {
@@ -64,23 +66,29 @@ Experiment condition:
 Runtime state:
 - Current phase: ${isNewProblem ? 'active_socratic' : phase}
 - Estimated problem difficulty: ${difficulty || 'unknown'}
-- Hint allowed: ${canHint ? 'true' : 'false'}
+- Hint allowed this turn: ${canHint ? 'true' : 'false'}
+- Hints given so far: ${Math.max(0, Number(hintCount || 0))}
+- Max hints for this problem (80% cap): ${maxHints ?? 'not yet calculated'}
+- All hints exhausted: ${hintsExhausted ? 'true' : 'false'}
 - Full solution allowed: ${fullSolutionAllowed ? 'true' : 'false'}
 - Seconds since problem started: ${Math.max(0, Math.round(secondsSinceProblemStarted || 0))}
 - Initial hint delay required: ${initialHintDelaySeconds || 'not yet calculated'} seconds
 - Mid-problem hint delay required: ${midProblemDelaySeconds || 'not yet calculated'} seconds
-- Hint number already given: ${Math.max(0, Number(hintCount || 0))}
 - Metacognitive prompt due: ${metacognitivePromptDue ? 'true' : 'false'}
 
 Recent conversation:
 ${formatConversation(conversation)}
 
 Instruction for this response:
-${getTurnInstruction({ isNewProblem, hintAllowed: canHint })}
+${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintsExhausted: Boolean(hintsExhausted), metacognitivePromptDue: Boolean(metacognitivePromptDue) })}
 `.trim()
 }
 
-function getTurnInstruction({ isNewProblem, hintAllowed }) {
+// Shape returned for ALL follow-up turns (not new_problem).
+const FOLLOWUP_JSON_SHAPE =
+  '{"message":"student-facing response","isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false}'
+
+function getTurnInstruction({ isNewProblem, hintAllowed, hintsExhausted, metacognitivePromptDue }) {
   if (isNewProblem) {
     return [
       'The student has submitted a new problem.',
@@ -95,20 +103,49 @@ function getTurnInstruction({ isNewProblem, hintAllowed }) {
     ].join(' ')
   }
 
+  // All follow-up turns return JSON so the route can reliably read flags.
+  const jsonNote = `Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
+
+  if (hintsExhausted) {
+    return [
+      'All hints for this problem have been given (80% solution cap reached).',
+      'Do NOT provide any further hints.',
+      'Continue with Socratic guidance only.',
+      'If the student has now arrived at the correct answer, set isProblemComplete to true.',
+      metacognitivePromptDue
+        ? 'A metacognitive reflection prompt is due — weave one in naturally.'
+        : '',
+      jsonNote,
+    ].filter(Boolean).join(' ')
+  }
+
   if (hintAllowed) {
     return [
       'A concrete hint is now allowed.',
       'Give only the next useful hint, calibrated to the answer specificity level.',
       'Use LaTeX delimiters for all math.',
-      'Do not give the final answer or full solution.',
-    ].join(' ')
+      'Do not give the final answer or full solution. Set hintGiven to true.',
+      'If this hint leads the student to the correct answer, set isProblemComplete to true',
+      'and include an Answer/Solution Justification metacognitive prompt in your message',
+      '(e.g. "Great — before we move on, why did that step unlock the rest of the problem?").',
+      metacognitivePromptDue
+        ? 'A metacognitive reflection prompt is also due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
+        : '',
+      jsonNote,
+    ].filter(Boolean).join(' ')
   }
 
   return [
-    'Respond to the student within the current no-hint phase.',
-    'Do not provide a concrete hint or final answer.',
+    'Respond to the student. Do not provide a concrete hint or final answer.',
     'Use Socratic guidance to help the student make progress independently.',
-  ].join(' ')
+    'If the student has now arrived at the correct answer, set isProblemComplete to true',
+    'and include an Answer/Solution Justification prompt in your message',
+    '(e.g. "Well done! Walk me through how you figured that out.").',
+    metacognitivePromptDue
+      ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
+      : '',
+    jsonNote,
+  ].filter(Boolean).join(' ')
 }
 
 function formatConversation(conversation = []) {
