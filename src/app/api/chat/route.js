@@ -125,6 +125,7 @@ async function handleFollowUp({ admin, body, condition, userId }) {
     await logQuestion(admin, userId, displayProblem, tutorMessage)
 
     return Response.json({
+      isWaitMessage: true,
       attemptId: attempt?.id || null,
       displayProblem,
       hintAllowed: hintState.hintAllowed,

@@ -108,7 +108,11 @@ export default function ChatPage() {
         setNextHintAvailableAt(data.nextHintAvailableAt)
       }
 
-      setMessages((m) => [...m, data.message])
+      // Wait messages (hint requested but delay not yet elapsed) are handled
+      // by the countdown in the problem card — no need for a chat bubble too.
+      if (!data.isWaitMessage) {
+        setMessages((m) => [...m, data.message])
+      }
     } catch (err) {
       setError(err.message || 'The tutor could not respond. Please try again.')
       if (phase === 'new_problem') {
