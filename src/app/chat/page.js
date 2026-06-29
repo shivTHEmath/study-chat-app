@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import MathText from '@/components/MathText'
+import { shouldTriggerCheckin, checkinMessageFor } from '@/lib/tutor/engagementClock'
 
 export default function ChatPage() {
   const router = useRouter()
@@ -16,9 +17,32 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [hintAllowed, setHintAllowed] = useState(null)        // null = no attempt yet
   const [nextHintAvailableAt, setNextHintAvailableAt] = useState(null)
+  const [clockState, setClockState] = useState(null)          // returned by /api/chat
+  const [pendingCheckinType, setPendingCheckinType] = useState(null)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
+
+  // Idle check-in polling — runs every 30 s while the chat page is open.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!clockState || pendingCheckinType) return
+      const hasActiveProblem = Boolean(problem && !problemPending)
+      if (shouldTriggerCheckin(
+        {
+          last_activity_at: clockState.lastActivityAt,
+          clock_paused_at: clockState.clockPausedAt,
+          pending_checkin_type: clockState.pendingCheckinType,
+        },
+        hasActiveProblem
+      )) {
+        const { type, message: checkinMsg } = checkinMessageFor(hasActiveProblem)
+        setPendingCheckinType(type)
+        setMessages((m) => [...m, { role: 'system', text: checkinMsg }])
+      }
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [clockState, pendingCheckinType, problem, problemPending])
 
   // Keep the conversation pinned to the latest message.
   useEffect(() => {
@@ -83,6 +107,7 @@ export default function ChatPage() {
           studentMessage,
           attemptId,
           phase,
+          pendingCheckinType,
           secondsSinceProblemStarted: 0,
           conversation: nextMessages,
         }),
@@ -106,6 +131,13 @@ export default function ChatPage() {
       }
       if (data.nextHintAvailableAt !== undefined) {
         setNextHintAvailableAt(data.nextHintAvailableAt)
+      }
+      if (data.clockState) {
+        setClockState(data.clockState)
+        // Clear local pendingCheckinType once the server has processed the reply.
+        if (!data.clockState.pendingCheckinType) {
+          setPendingCheckinType(null)
+        }
       }
 
       // Wait messages (hint requested but delay not yet elapsed) are handled
@@ -260,6 +292,17 @@ function getProblemText({ problem, problemPending }) {
 }
 
 function Message({ role, text }) {
+  // System messages (idle check-ins) appear as a centred, muted notice.
+  if (role === 'system') {
+    return (
+      <div className="flex justify-center">
+        <p className="text-xs text-muted bg-surface border border-line rounded-full px-4 py-1.5">
+          {text}
+        </p>
+      </div>
+    )
+  }
+
   const isUser = role === 'user'
 
   if (isUser) {

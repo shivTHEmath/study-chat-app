@@ -8,6 +8,7 @@ import {
   calculateMidProblemDelaySeconds,
 } from '@/lib/tutor/runtime'
 import { shouldFireMetacognitivePrompt } from '@/lib/tutor/metacognitivePrompting'
+import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -36,9 +37,10 @@ export async function POST(request) {
     }
 
     const admin = createAdminClient()
-    const [condition, grade] = await Promise.all([
+    const [condition, grade, participantCounters] = await Promise.all([
       loadParticipantCondition(admin, user.id),
       loadParticipantGrade(admin, user.id),
+      loadParticipantCounters(admin, user.id),
     ])
 
     if (!condition) {
@@ -51,10 +53,10 @@ export async function POST(request) {
     const phase = body.phase || 'follow_up'
 
     if (phase === 'new_problem') {
-      return await handleNewProblem({ admin, body, condition, grade, userId: user.id })
+      return await handleNewProblem({ admin, body, condition, grade, participantCounters, userId: user.id })
     }
 
-    return await handleFollowUp({ admin, body, condition, grade, userId: user.id })
+    return await handleFollowUp({ admin, body, condition, grade, participantCounters, userId: user.id })
   } catch (err) {
     console.error('[api/chat] failed:', err)
     return Response.json(
@@ -64,7 +66,18 @@ export async function POST(request) {
   }
 }
 
-async function handleNewProblem({ admin, body, condition, grade, userId }) {
+async function handleNewProblem({ admin, body, condition, grade, participantCounters, userId }) {
+  const { deltaSeconds, updates: clockUpdates } = resolveEngagementTick(
+    {
+      ...participantCounters,
+      pending_checkin_type: body.pendingCheckinType ?? participantCounters.pending_checkin_type,
+    },
+    body.studentMessage
+  )
+  const newCumulativeSeconds = await updateParticipantClock(
+    admin, userId, participantCounters.cumulative_engaged_seconds, deltaSeconds, clockUpdates
+  )
+
   const runtimeContext = buildRuntimeContext({
     condition,
     grade,
@@ -100,6 +113,12 @@ async function handleNewProblem({ admin, body, condition, grade, userId }) {
     displayProblem,
     hintAllowed: false,
     nextHintAvailableAt: toFutureIso(initialHintDelaySeconds),
+    clockState: {
+      cumulativeEngagedSeconds: newCumulativeSeconds,
+      lastActivityAt: clockUpdates.last_activity_at,
+      clockPausedAt: clockUpdates.clock_paused_at ?? null,
+      pendingCheckinType: clockUpdates.pending_checkin_type ?? null,
+    },
     runtime: {
       difficulty,
       initialHintDelaySeconds,
@@ -113,7 +132,26 @@ async function handleNewProblem({ admin, body, condition, grade, userId }) {
   })
 }
 
-async function handleFollowUp({ admin, body, condition, grade, userId }) {
+async function handleFollowUp({ admin, body, condition, grade, participantCounters, userId }) {
+  // Tick the engagement clock on every student message, including hint-wait
+  // short-circuits below — the student DID send a message either way.
+  const { deltaSeconds, updates: clockUpdates } = resolveEngagementTick(
+    {
+      ...participantCounters,
+      pending_checkin_type: body.pendingCheckinType ?? participantCounters.pending_checkin_type,
+    },
+    body.studentMessage
+  )
+  const newCumulativeSeconds = await updateParticipantClock(
+    admin, userId, participantCounters.cumulative_engaged_seconds, deltaSeconds, clockUpdates
+  )
+  const clockState = {
+    cumulativeEngagedSeconds: newCumulativeSeconds,
+    lastActivityAt: clockUpdates.last_activity_at,
+    clockPausedAt: clockUpdates.clock_paused_at ?? null,
+    pendingCheckinType: clockUpdates.pending_checkin_type ?? null,
+  }
+
   const attempt = body.attemptId
     ? await loadProblemAttempt(admin, userId, body.attemptId)
     : null
@@ -134,6 +172,7 @@ async function handleFollowUp({ admin, body, condition, grade, userId }) {
       displayProblem,
       hintAllowed: hintState.hintAllowed,
       nextHintAvailableAt: hintState.nextHintAvailableAt,
+      clockState,
       runtime: {
         difficulty,
         initialHintDelaySeconds: hintState.initialHintDelaySeconds,
@@ -149,7 +188,6 @@ async function handleFollowUp({ admin, body, condition, grade, userId }) {
     })
   }
 
-  const participantCounters = await loadParticipantCounters(admin, userId)
   const metacognitivePromptDue = shouldFireMetacognitivePrompt({
     mcpValue: effectiveCondition.mcp_value,
     promptsOnCurrentProblem: attempt?.metacognitive_prompt_count || 0,
@@ -186,6 +224,7 @@ async function handleFollowUp({ admin, body, condition, grade, userId }) {
     displayProblem,
     hintAllowed: hintState.hintAllowed,
     nextHintAvailableAt: hintState.nextHintAvailableAt,
+    clockState,
     runtime: {
       difficulty,
       initialHintDelaySeconds: hintState.initialHintDelaySeconds,
@@ -248,11 +287,14 @@ async function loadParticipantCondition(admin, userId) {
   return data.condition
 }
 
-// Fetches the participant's MCP counters needed by shouldFireMetacognitivePrompt.
+// Fetches all participant counters needed by the clock and MCP logic.
 async function loadParticipantCounters(admin, userId) {
   const { data, error } = await admin
     .from('participants')
-    .select('total_metacognitive_prompts_given, problems_completed')
+    .select(
+      'total_metacognitive_prompts_given, problems_completed, ' +
+      'cumulative_engaged_seconds, last_activity_at, clock_paused_at, pending_checkin_type'
+    )
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -263,7 +305,27 @@ async function loadParticipantCounters(admin, userId) {
   return {
     total_metacognitive_prompts_given: Number(data?.total_metacognitive_prompts_given || 0),
     problems_completed: Number(data?.problems_completed || 0),
+    cumulative_engaged_seconds: Number(data?.cumulative_engaged_seconds || 0),
+    last_activity_at: data?.last_activity_at ?? null,
+    clock_paused_at: data?.clock_paused_at ?? null,
+    pending_checkin_type: data?.pending_checkin_type ?? null,
   }
+}
+
+// Persists the engagement-clock delta and field updates from resolveEngagementTick.
+// Returns the new cumulative total.
+async function updateParticipantClock(admin, userId, currentSeconds, deltaSeconds, clockUpdates) {
+  const newTotal = Number(currentSeconds) + Number(deltaSeconds)
+  const { error } = await admin
+    .from('participants')
+    .update({ cumulative_engaged_seconds: newTotal, ...clockUpdates })
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('[api/chat] participant clock update failed:', error.message)
+  }
+
+  return newTotal
 }
 
 // Fetches the participant's grade from their survey response.
