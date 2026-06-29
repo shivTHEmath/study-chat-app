@@ -14,7 +14,7 @@ const admin = createClient(
 
 export async function POST(req) {
   try {
-    const { username, password, inviteCode } = await req.json()
+    const { username, password, inviteCode, sessionId } = await req.json()
 
     if (!username || !password) {
       return NextResponse.json({ error: 'Username and password required.' }, { status: 400 })
@@ -61,6 +61,23 @@ export async function POST(req) {
         { error: full ? 'The study is currently full.' : 'Could not assign a condition. Please try again.' },
         { status: full ? 409 : 500 }
       )
+    }
+
+    // Link pre-account consent and survey rows to the new user.
+    // Best-effort: if session_id is missing or no rows match, we log and continue —
+    // a failed link must never block account creation.
+    if (sessionId) {
+      const tables = ['consent_responses', 'survey_responses']
+      for (const table of tables) {
+        const { error: linkErr } = await admin
+          .from(table)
+          .update({ user_id: userId })
+          .eq('session_id', sessionId)
+          .is('user_id', null) // only update rows that haven't already been linked
+        if (linkErr) {
+          console.error(`[api/signup] failed to link ${table}:`, linkErr.message)
+        }
+      }
     }
 
     // Condition params are intentionally NOT returned to the browser —
