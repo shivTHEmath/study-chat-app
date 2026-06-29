@@ -536,46 +536,95 @@ function extractText(response) {
 }
 
 // Parses the structured JSON the model returns for every follow-up turn.
-// Falls back gracefully: if JSON is missing or malformed, treats the whole
-// response as the message and leaves all flags false.
+// Three-stage fallback so raw JSON never leaks into the chat:
+//   1. JSON.parse on the stripped text
+//   2. Regex extraction of the first {...} block (handles extra prose around JSON)
+//   3. Regex extraction of just the "message" field value (handles malformed JSON)
 function parseFollowUpResponse(text) {
-  const fallback = { message: String(text || '').trim(), isProblemComplete: false, hintGiven: false, metacognitivePromptIncluded: false }
+  const stripped = stripCodeFence(text)
 
-  try {
-    const parsed = JSON.parse(stripCodeFence(text))
-    if (typeof parsed?.message === 'string') {
-      return {
-        message: parsed.message.trim(),
-        isProblemComplete: Boolean(parsed.isProblemComplete),
-        hintGiven: Boolean(parsed.hintGiven),
-        metacognitivePromptIncluded: Boolean(parsed.metacognitivePromptIncluded),
-      }
+  // Stage 1 — clean parse
+  const parsed = tryParseJson(stripped)
+  if (parsed && typeof parsed.message === 'string') {
+    return {
+      message: parsed.message.trim(),
+      isProblemComplete: Boolean(parsed.isProblemComplete),
+      hintGiven: Boolean(parsed.hintGiven),
+      metacognitivePromptIncluded: Boolean(parsed.metacognitivePromptIncluded),
     }
-  } catch {
-    // Model returned plain text — use it as-is.
   }
 
-  return fallback
+  // Stage 2 — extract "message" value with regex (handles unescaped quotes /
+  // literal newlines inside the string that break JSON.parse)
+  const msgMatch = stripped.match(/"message"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
+  if (msgMatch) {
+    const message = unescapeJsonString(msgMatch[1]).trim()
+    if (message) {
+      return {
+        message,
+        isProblemComplete: /"isProblemComplete"\s*:\s*true/.test(stripped),
+        hintGiven: /"hintGiven"\s*:\s*true/.test(stripped),
+        metacognitivePromptIncluded: /"metacognitivePromptIncluded"\s*:\s*true/.test(stripped),
+      }
+    }
+  }
+
+  // Stage 3 — give up on JSON; use the raw text but strip any JSON fragments
+  // so the student sees readable prose rather than code
+  const cleaned = stripped
+    .replace(/^\s*\{[\s\S]*?"message"\s*:\s*"/, '')  // strip leading JSON up to message
+    .replace(/",?\s*"isProblemComplete"[\s\S]*$/, '') // strip trailing JSON flags
+    .replace(/^\s*"|"\s*$/, '')                        // strip wrapping quotes if any
+    .trim()
+  return {
+    message: cleaned || stripped,
+    isProblemComplete: false,
+    hintGiven: false,
+    metacognitivePromptIncluded: false,
+  }
 }
 
 function parseNewProblemResponse(text) {
-  try {
-    const parsed = JSON.parse(stripCodeFence(text))
-    if (
-      typeof parsed?.displayProblem === 'string' &&
-      typeof parsed?.message === 'string'
-    ) {
-      return {
-        displayProblem: parsed.displayProblem.trim(),
-        difficulty: clampDifficulty(parsed.difficulty),
-        message: parsed.message.trim(),
-      }
+  const stripped = stripCodeFence(text)
+
+  // Stage 1 — clean parse
+  const parsed = tryParseJson(stripped)
+  if (parsed && typeof parsed.displayProblem === 'string' && typeof parsed.message === 'string') {
+    return {
+      displayProblem: parsed.displayProblem.trim(),
+      difficulty: clampDifficulty(parsed.difficulty),
+      message: parsed.message.trim(),
     }
-  } catch {
-    return null
+  }
+
+  // Stage 2 — regex extraction of displayProblem + message
+  const dpMatch = stripped.match(/"displayProblem"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
+  const msgMatch = stripped.match(/"message"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
+  if (dpMatch && msgMatch) {
+    return {
+      displayProblem: unescapeJsonString(dpMatch[1]).trim(),
+      difficulty: clampDifficulty((stripped.match(/"difficulty"\s*:\s*(\d)/) || [])[1]),
+      message: unescapeJsonString(msgMatch[1]).trim(),
+    }
   }
 
   return null
+}
+
+// Attempts JSON.parse; returns null instead of throwing.
+function tryParseJson(text) {
+  try { return JSON.parse(text) } catch { return null }
+}
+
+// Re-applies the escape sequences a JSON parser would handle, so regex-
+// extracted strings render correctly (\\n → newline, \\" → quote, etc.)
+function unescapeJsonString(s) {
+  return s
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
 }
 
 function conditionFromAttempt(attempt) {
