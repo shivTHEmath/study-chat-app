@@ -87,7 +87,11 @@ ${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelay
 
 // Shape returned for ALL follow-up turns (not new_problem).
 const FOLLOWUP_JSON_SHAPE =
-  '{"message":"student-facing response","isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false}'
+  '{"message":"student-facing response\\n\\n[Label]","isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false}'
+
+// Testing label instruction appended to every turn.
+const LABEL_NOTE =
+  'TESTING: end your message field with a newline and a label on its own line indicating the response type(s): [Hint], [Socratic], [Metacognitive], [Productive Failure], or comma-separated combinations e.g. [Socratic, Metacognitive].'
 
 function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue }) {
   if (isNewProblem) {
@@ -102,13 +106,14 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Encourage genuine independent effort — something in the spirit of:',
       '"Give this a real try on your own. Come back with your findings once you\'ve worked through it and we\'ll dig in together."',
       'Do not suggest any approach or mathematical concept.',
+      LABEL_NOTE,
       'Return only valid JSON in this exact shape:',
-      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response"}.',
+      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response\\n\\n[Productive Failure]"}.',
     ].join(' ')
   }
 
   // All follow-up turns return JSON so the route can reliably read flags.
-  const jsonNote = `Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
+  const jsonNote = `${LABEL_NOTE} Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
 
   if (hintRequestedButDelayed) {
     return [
