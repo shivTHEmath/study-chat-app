@@ -1,5 +1,7 @@
 'use client'
 
+const SESSION_KEY = 'study_session_id'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -21,11 +23,13 @@ export default function SignupPage() {
     setLoading(true)
 
     try {
+      const sessionId = sessionStorage.getItem(SESSION_KEY)
+
       // Single API call: validates invite code, creates auth user, claims condition slot atomically
       const registerRes = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, inviteCode }),
+        body: JSON.stringify({ username, password, inviteCode, sessionId }),
       })
 
       if (!registerRes.ok) {
