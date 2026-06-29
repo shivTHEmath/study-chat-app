@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Source_Serif_4, Source_Sans_3 } from "next/font/google";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const sourceSerif = Source_Serif_4({

@@ -23,12 +23,11 @@ export async function proxy(request) {
     }
   )
 
-  // Refresh session if expired - required for Server Components
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-
-  // Public routes — no auth required
   const publicRoutes = [
     '/consent',
     '/consent/declined',
@@ -40,14 +39,12 @@ export async function proxy(request) {
   const isPublic = publicRoutes.some((r) => pathname === r || pathname.startsWith(r + '/'))
   const isApi = pathname.startsWith('/api')
 
-  // Unauthenticated users hitting a protected route → send to /consent
   if (!user && !isPublic && !isApi) {
     const url = request.nextUrl.clone()
     url.pathname = '/consent'
     return NextResponse.redirect(url)
   }
 
-  // Authenticated users hitting the root → send to /chat
   if (user && pathname === '/') {
     const url = request.nextUrl.clone()
     url.pathname = '/chat'
@@ -56,6 +53,8 @@ export async function proxy(request) {
 
   return supabaseResponse
 }
+
+export default proxy
 
 export const config = {
   matcher: [

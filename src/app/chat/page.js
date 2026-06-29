@@ -2,40 +2,27 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-
-// Placeholder content. The problem and the tutor's replies will come from the
-// backend later; for now the problem is static and replies are stubbed so the
-// interface can be used and reviewed.
-const PROBLEM =
-  ''
-
-const GREETING =
-  "Hi! I'm here to help you work through this problem — not to hand you the " +
-  'answer, but to think it through together. Take a look at it above, then tell ' +
-  'me: what is the question actually asking you to find?'
-
-// Stubbed, hint-style replies (the real tutor avoids giving direct answers).
-// Replaced by the backend later.
-const STUB_REPLIES = [
-
-]
+import MathText from '@/components/MathText'
 
 export default function ChatPage() {
   const router = useRouter()
+  const [problem, setProblem] = useState('')
   const [problemOpen, setProblemOpen] = useState(true)
-  const [messages, setMessages] = useState([{ role: 'tutor', text: GREETING }])
+  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [typing, setTyping] = useState(false)
+  const [attemptId, setAttemptId] = useState(null)
+  const [sending, setSending] = useState(false)
+  const [problemPending, setProblemPending] = useState(false)
+  const [error, setError] = useState('')
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
-  const replyCount = useRef(0)
 
   // Keep the conversation pinned to the latest message.
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages, typing])
+  }, [messages])
 
   const autoGrow = useCallback(() => {
     const el = textareaRef.current
@@ -44,22 +31,84 @@ export default function ChatPage() {
     el.style.height = Math.min(el.scrollHeight, 140) + 'px'
   }, [])
 
-  function send() {
+  async function send() {
     const text = input.trim()
-    if (!text || typing) return
+    if (!text || sending) return
 
-    setMessages((m) => [...m, { role: 'user', text }])
-    setInput('')
-    setTyping(true)
-    requestAnimationFrame(autoGrow)
+    setError('')
+    setSending(true)
+    if (!problem) {
+      setProblemPending(true)
+      setProblemOpen(true)
+      setInput('')
+      requestAnimationFrame(autoGrow)
 
-    // TODO: replace with a real request to the tutoring backend.
-    const reply = STUB_REPLIES[replyCount.current % STUB_REPLIES.length]
-    replyCount.current += 1
-    setTimeout(() => {
-      setMessages((m) => [...m, { role: 'tutor', text: reply }])
-      setTyping(false)
-    }, 900)
+      await requestTutorMessage({
+        problemText: text,
+        studentMessage: text,
+        phase: 'new_problem',
+        nextMessages: [],
+      })
+    } else {
+      const nextMessages = [...messages, { role: 'user', text }]
+      setMessages(nextMessages)
+      setInput('')
+      requestAnimationFrame(autoGrow)
+
+      await requestTutorMessage({
+        problemText: problem,
+        studentMessage: text,
+        phase: 'follow_up',
+        nextMessages,
+      })
+    }
+
+    setSending(false)
+  }
+
+  async function requestTutorMessage({
+    problemText,
+    studentMessage,
+    phase,
+    nextMessages,
+  }) {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          problem: problemText,
+          studentMessage,
+          attemptId,
+          phase,
+          secondsSinceProblemStarted: 0,
+          conversation: nextMessages,
+        }),
+      })
+
+      const data = await readJsonResponse(response)
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'The tutor could not respond. Please try again.')
+      }
+
+      if (phase === 'new_problem' && data.displayProblem) {
+        setProblem(data.displayProblem)
+        setProblemPending(false)
+      }
+      if (data.attemptId) {
+        setAttemptId(data.attemptId)
+      }
+
+      setMessages((m) => [...m, data.message])
+    } catch (err) {
+      setError(err.message || 'The tutor could not respond. Please try again.')
+      if (phase === 'new_problem') {
+        setProblemPending(false)
+      }
+    } finally {
+      setSending(false)
+    }
   }
 
   function onKeyDown(e) {
@@ -85,7 +134,7 @@ export default function ChatPage() {
       </header>
 
       {/* Sticky, collapsible problem card */}
-      <div className="shrink-0 bg-paper border-b border-line">
+      <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
         <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="card overflow-hidden">
             <button
@@ -111,9 +160,13 @@ export default function ChatPage() {
               </svg>
             </button>
             {problemOpen ? (
-              <p className="px-4 pb-4 -mt-1 text-[15px] text-ink leading-relaxed">{PROBLEM}</p>
+              <p className={`px-4 pb-4 -mt-1 text-[15px] leading-relaxed ${problem ? 'text-ink' : 'text-muted'}`}>
+                <MathText text={getProblemText({ problem, problemPending })} />
+              </p>
             ) : (
-              <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">{PROBLEM}</p>
+              <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">
+                <MathText text={getProblemText({ problem, problemPending })} />
+              </p>
             )}
           </div>
         </div>
@@ -125,7 +178,12 @@ export default function ChatPage() {
           {messages.map((m, i) => (
             <Message key={i} role={m.role} text={m.text} />
           ))}
-          {typing && <TypingIndicator />}
+          {sending && <TypingIndicator />}
+          {error && (
+            <div className="rounded-md border border-danger/30 bg-surface px-3 py-2 text-sm text-danger">
+              {error}
+            </div>
+          )}
         </div>
       </div>
 
@@ -144,13 +202,13 @@ export default function ChatPage() {
             }}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder="Type your thinking…"
+            placeholder="Enter your question"
             className="field resize-none max-h-[140px] flex-1"
           />
           <button
             type="button"
             onClick={send}
-            disabled={!input.trim() || typing}
+            disabled={!input.trim() || sending}
             aria-label="Send message"
             className="btn btn-primary h-11 w-11 shrink-0 rounded-full p-0"
           >
@@ -165,6 +223,27 @@ export default function ChatPage() {
   )
 }
 
+async function readJsonResponse(response) {
+  const text = await response.text()
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return {
+      error: response.ok
+        ? 'The tutor returned an unreadable response.'
+        : 'The tutor service returned an unexpected error.',
+    }
+  }
+}
+
+function getProblemText({ problem, problemPending }) {
+  if (problem) return problem
+  if (problemPending) return 'Preparing your problem...'
+  return 'Enter your question below.'
+}
+
 function Message({ role, text }) {
   const isUser = role === 'user'
 
@@ -172,7 +251,7 @@ function Message({ role, text }) {
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] sm:max-w-[78%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] leading-relaxed text-white">
-          {text}
+          <MathText text={text} />
         </div>
       </div>
     )
@@ -186,7 +265,7 @@ function Message({ role, text }) {
       <div className="max-w-[85%] sm:max-w-[78%]">
         <p className="mb-1 text-xs font-semibold text-muted">Tutor</p>
         <div className="rounded-2xl rounded-bl-md border border-line bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-          {text}
+          <MathText text={text} />
         </div>
       </div>
     </div>
