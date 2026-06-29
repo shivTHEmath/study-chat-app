@@ -292,37 +292,32 @@ async function loadProblemAttempt(admin, userId, attemptId) {
 }
 
 async function incrementHintCount(admin, attemptId) {
-  const { error } = await admin
-    .from('problem_attempts')
-    .update({ updated_at: new Date().toISOString() })
-    .eq('id', attemptId)
-
-  if (error) {
-    console.error('[api/chat] problem attempt update failed:', error.message)
-    return
-  }
-
-  const { data: current, error: lookupError } = await admin
+  // Read then write in two calls. Supabase JS does not support
+  // `hint_count = hint_count + 1` expressions directly; a true atomic
+  // single-statement increment would require an RPC/migration. For this
+  // study, simultaneous hint requests on the same attempt are not possible
+  // (the UI is blocked while a request is in-flight), so two calls is safe.
+  const { data, error: readError } = await admin
     .from('problem_attempts')
     .select('hint_count')
     .eq('id', attemptId)
     .single()
 
-  if (lookupError) {
-    console.error('[api/chat] problem attempt hint lookup failed:', lookupError.message)
+  if (readError) {
+    console.error('[api/chat] hint count read failed:', readError.message)
     return
   }
 
-  const { error: countError } = await admin
+  const { error: writeError } = await admin
     .from('problem_attempts')
     .update({
-      hint_count: Number(current?.hint_count || 0) + 1,
+      hint_count: Number(data?.hint_count || 0) + 1,
       updated_at: new Date().toISOString(),
     })
     .eq('id', attemptId)
 
-  if (countError) {
-    console.error('[api/chat] problem attempt hint update failed:', countError.message)
+  if (writeError) {
+    console.error('[api/chat] hint count write failed:', writeError.message)
   }
 }
 
