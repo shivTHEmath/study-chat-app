@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import MathText from '@/components/MathText'
 import { shouldTriggerCheckin, checkinMessageFor } from '@/lib/tutor/engagementClock'
+import { createClient } from '@/lib/supabase/client'
 
 export default function ChatPage() {
   const router = useRouter()
@@ -22,6 +23,16 @@ export default function ChatPage() {
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
+
+  // Client-side auth guard — fallback in case middleware is bypassed.
+  // Middleware is the primary guard; this catches edge cases like a stale
+  // cached page or a session that expired after the page loaded.
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) router.replace('/login')
+    })
+  }, [router])
 
   // Idle check-in polling — runs every 30 s while the chat page is open.
   useEffect(() => {
