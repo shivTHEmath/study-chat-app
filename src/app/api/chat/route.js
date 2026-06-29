@@ -6,6 +6,7 @@ import {
   buildRuntimeContext,
   calculateInitialDelaySeconds,
   calculateMidProblemDelaySeconds,
+  calculateFadeMultiplier,
 } from '@/lib/tutor/runtime'
 import { shouldFireMetacognitivePrompt } from '@/lib/tutor/metacognitivePrompting'
 import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
@@ -78,8 +79,18 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     admin, userId, participantCounters.cumulative_engaged_seconds, deltaSeconds, clockUpdates
   )
 
+  // Apply SFR fade to AS and AD using the updated cumulative engaged time.
+  // AS shrinks (×multiplier); AD's base grows (÷multiplier) — both per §3 of BUILD_DECISIONS_HANDOFF.md.
+  const cumulativeEngagedHours = newCumulativeSeconds / 3600
+  const fadeMultiplier = calculateFadeMultiplier(condition.sfr_value, cumulativeEngagedHours)
+  const fadedCondition = {
+    ...condition,
+    as_value: condition.as_value * fadeMultiplier,
+    ad_base_c: condition.ad_base_c / Math.max(fadeMultiplier, 1e-6),
+  }
+
   const runtimeContext = buildRuntimeContext({
-    condition,
+    condition: fadedCondition,
     grade,
     problem: body.problem,
     phase: 'new_problem',
@@ -95,8 +106,8 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
   const displayProblem = parsed?.displayProblem || body.problem
   const difficulty = clampDifficulty(parsed?.difficulty || 3)
   const tutorMessage = parsed?.message || modelText
-  const initialHintDelaySeconds = calculateInitialDelaySeconds(condition.ad_base_c, difficulty)
-  const midProblemDelaySeconds = calculateMidProblemDelaySeconds(condition.ad_base_c, difficulty)
+  const initialHintDelaySeconds = calculateInitialDelaySeconds(fadedCondition.ad_base_c, difficulty)
+  const midProblemDelaySeconds = calculateMidProblemDelaySeconds(fadedCondition.ad_base_c, difficulty)
   const attempt = await createProblemAttempt({
     admin,
     userId,
@@ -157,7 +168,18 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     : null
   const effectiveCondition = attempt ? conditionFromAttempt(attempt) : condition
   const difficulty = clampDifficulty(attempt?.difficulty || body.difficulty || 3)
-  const hintState = getHintState(attempt, effectiveCondition, difficulty)
+
+  // Apply SFR fade to this follow-up turn using updated cumulative engaged time.
+  const cumulativeEngagedHours = newCumulativeSeconds / 3600
+  const fadeMultiplier = calculateFadeMultiplier(effectiveCondition.sfr_value, cumulativeEngagedHours)
+  const fadedCondition = {
+    ...effectiveCondition,
+    as_value: effectiveCondition.as_value * fadeMultiplier,
+    ad_base_c: effectiveCondition.ad_base_c / Math.max(fadeMultiplier, 1e-6),
+    // mcp_value is intentionally NOT faded — per BUILD_DECISIONS_HANDOFF.md §4
+  }
+
+  const hintState = getHintState(attempt, fadedCondition, difficulty)
   const displayProblem = attempt?.display_problem || body.problem
   const requestedHint = isHintRequest(body.studentMessage)
   const requestedHintTime = isHintTimeRequest(body.studentMessage)
@@ -189,14 +211,14 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   }
 
   const metacognitivePromptDue = shouldFireMetacognitivePrompt({
-    mcpValue: effectiveCondition.mcp_value,
+    mcpValue: effectiveCondition.mcp_value, // mcp_value unfaded — intentional
     promptsOnCurrentProblem: attempt?.metacognitive_prompt_count || 0,
     totalPromptsGiven: participantCounters.total_metacognitive_prompts_given,
     problemsCompleted: participantCounters.problems_completed,
   })
 
   const runtimeContext = buildRuntimeContext({
-    condition: effectiveCondition,
+    condition: fadedCondition,
     grade,
     problem: displayProblem,
     phase: 'follow_up',
