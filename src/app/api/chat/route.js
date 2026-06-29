@@ -184,31 +184,11 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   const requestedHint = isHintRequest(body.studentMessage)
   const requestedHintTime = isHintTimeRequest(body.studentMessage)
 
-  if (requestedHintTime || (requestedHint && !hintState.hintAllowed)) {
-    const tutorMessage = buildWaitMessage(hintState)
-    await logQuestion(admin, userId, displayProblem, tutorMessage)
-
-    return Response.json({
-      isWaitMessage: true,
-      attemptId: attempt?.id || null,
-      displayProblem,
-      hintAllowed: hintState.hintAllowed,
-      nextHintAvailableAt: hintState.nextHintAvailableAt,
-      clockState,
-      runtime: {
-        difficulty,
-        initialHintDelaySeconds: hintState.initialHintDelaySeconds,
-        midProblemDelaySeconds: hintState.midProblemDelaySeconds,
-        hintCount: attempt?.hint_count || 0,
-        secondsSinceStarted: hintState.secondsSinceStarted,
-        secondsUntilHint: hintState.secondsUntilHint,
-      },
-      message: {
-        role: 'tutor',
-        text: tutorMessage,
-      },
-    })
-  }
+  // Hint was asked for (or timing asked about) but the access delay hasn't elapsed yet.
+  // Instead of blocking, route to the AI with a flag to give a Socratic/metacognitive
+  // response — no mention of time or delays.
+  const hintRequestedButDelayed =
+    (requestedHint || requestedHintTime) && !hintState.hintAllowed
 
   const metacognitivePromptDue = shouldFireMetacognitivePrompt({
     mcpValue: effectiveCondition.mcp_value, // mcp_value unfaded — intentional
@@ -224,6 +204,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     phase: 'follow_up',
     difficulty,
     hintAllowed: requestedHint && hintState.hintAllowed,
+    hintRequestedButDelayed,
     fullSolutionAllowed: false,
     secondsSinceProblemStarted: hintState.secondsSinceStarted,
     initialHintDelaySeconds: hintState.initialHintDelaySeconds,
@@ -660,14 +641,6 @@ function isHintTimeRequest(message) {
     /\bwhen\b.*\bhint\b/.test(text) ||
     /\bhint\b.*\bwhen\b/.test(text)
   )
-}
-
-function buildWaitMessage(hintState) {
-  if (hintState.hintAllowed) {
-    return 'You can ask for the next hint now.'
-  }
-
-  return `You can get the next hint in ${formatRemainingTime(hintState.secondsUntilHint)}.`
 }
 
 function formatRemainingTime(totalSeconds) {

@@ -33,6 +33,7 @@ export function buildRuntimeContext({
   phase,
   difficulty,
   hintAllowed,
+  hintRequestedButDelayed,
   fullSolutionAllowed,
   secondsSinceProblemStarted,
   initialHintDelaySeconds,
@@ -80,7 +81,7 @@ Recent conversation:
 ${formatConversation(conversation)}
 
 Instruction for this response:
-${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintsExhausted: Boolean(hintsExhausted), metacognitivePromptDue: Boolean(metacognitivePromptDue) })}
+${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), hintsExhausted: Boolean(hintsExhausted), metacognitivePromptDue: Boolean(metacognitivePromptDue) })}
 `.trim()
 }
 
@@ -88,16 +89,19 @@ ${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintsExhausted: Boole
 const FOLLOWUP_JSON_SHAPE =
   '{"message":"student-facing response","isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false}'
 
-function getTurnInstruction({ isNewProblem, hintAllowed, hintsExhausted, metacognitivePromptDue }) {
+function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue }) {
   if (isNewProblem) {
     return [
       'The student has submitted a new problem.',
       'First rewrite the submitted problem as a polished textbook-style math problem.',
       'Preserve the exact mathematical meaning and use LaTeX delimiters for all math.',
       'Estimate the difficulty from 1 to 5.',
-      'Do not provide a concrete hint yet.',
-      'Give a short Socratic response that helps the student identify what the problem is asking',
-      'and choose a starting point.',
+      'THIS IS THE PRODUCTIVE FAILURE PERIOD.',
+      'Do NOT give any hints, guidance, strategies, or starting points.',
+      'Your message should be brief (2–3 sentences), warm, and send the student off to struggle with the problem on their own.',
+      'Encourage genuine independent effort — something in the spirit of:',
+      '"Give this a real try on your own. Come back with your findings once you\'ve worked through it and we\'ll dig in together."',
+      'Do not suggest any approach or mathematical concept.',
       'Return only valid JSON in this exact shape:',
       '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response"}.',
     ].join(' ')
@@ -105,6 +109,20 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintsExhausted, metacog
 
   // All follow-up turns return JSON so the route can reliably read flags.
   const jsonNote = `Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
+
+  if (hintRequestedButDelayed) {
+    return [
+      'The student has asked for a hint, but they need to keep working independently right now.',
+      'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
+      'Instead, respond with a genuine Socratic question or metacognitive prompt that encourages deeper thinking.',
+      'Ask what they have tried so far, what they notice about the problem, what concept might apply, or where they feel stuck.',
+      'Keep it short and curious — your goal is to get them thinking, not to lead them.',
+      metacognitivePromptDue
+        ? 'A metacognitive reflection prompt is also due — weave one in naturally and set metacognitivePromptIncluded to true.'
+        : '',
+      jsonNote,
+    ].filter(Boolean).join(' ')
+  }
 
   if (hintsExhausted) {
     return [

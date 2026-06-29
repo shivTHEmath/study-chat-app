@@ -16,8 +16,6 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [problemPending, setProblemPending] = useState(false)
   const [error, setError] = useState('')
-  const [hintAllowed, setHintAllowed] = useState(null)        // null = no attempt yet
-  const [nextHintAvailableAt, setNextHintAvailableAt] = useState(null)
   const [clockState, setClockState] = useState(null)          // returned by /api/chat
   const [pendingCheckinType, setPendingCheckinType] = useState(null)
 
@@ -137,12 +135,6 @@ export default function ChatPage() {
       if (data.attemptId) {
         setAttemptId(data.attemptId)
       }
-      if (data.hintAllowed !== undefined) {
-        setHintAllowed(data.hintAllowed)
-      }
-      if (data.nextHintAvailableAt !== undefined) {
-        setNextHintAvailableAt(data.nextHintAvailableAt)
-      }
       if (data.clockState) {
         setClockState(data.clockState)
         // Clear local pendingCheckinType once the server has processed the reply.
@@ -151,9 +143,7 @@ export default function ChatPage() {
         }
       }
 
-      // Wait messages (hint requested but delay not yet elapsed) are handled
-      // by the countdown in the problem card — no need for a chat bubble too.
-      if (!data.isWaitMessage) {
+      if (data.message) {
         setMessages((m) => [...m, data.message])
       }
     } catch (err) {
@@ -219,7 +209,6 @@ export default function ChatPage() {
                 <p className={`text-[15px] leading-relaxed ${problem ? 'text-ink' : 'text-muted'}`}>
                   <MathText text={getProblemText({ problem, problemPending })} />
                 </p>
-                <HintStatus hintAllowed={hintAllowed} nextHintAvailableAt={nextHintAvailableAt} />
               </div>
             ) : (
               <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">
@@ -355,59 +344,6 @@ function TypingIndicator() {
         </span>
       </div>
     </div>
-  )
-}
-
-// Shows hint availability beneath the problem text.
-// - null: no attempt yet — renders nothing.
-// - hintAllowed=true: green "hint available" prompt.
-// - hintAllowed=false: live countdown ticking down to nextHintAvailableAt.
-//   When the countdown reaches 0 it flips to the "available" state locally
-//   without waiting for the next API response.
-function HintStatus({ hintAllowed, nextHintAvailableAt }) {
-  const [secondsLeft, setSecondsLeft] = useState(null)
-  const [locallyAvailable, setLocallyAvailable] = useState(false)
-
-  useEffect(() => {
-    setLocallyAvailable(false)
-
-    if (hintAllowed || !nextHintAvailableAt) {
-      setSecondsLeft(null)
-      return
-    }
-
-    function tick() {
-      const diff = Math.max(0, Math.ceil((new Date(nextHintAvailableAt) - Date.now()) / 1000))
-      setSecondsLeft(diff)
-      if (diff === 0) setLocallyAvailable(true)
-    }
-
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [hintAllowed, nextHintAvailableAt])
-
-  if (hintAllowed === null) return null
-
-  if (hintAllowed || locallyAvailable) {
-    return (
-      <p className="mt-2 text-xs font-medium text-primary">
-        Hint available — type &ldquo;hint&rdquo; to ask
-      </p>
-    )
-  }
-
-  if (secondsLeft === null) return null
-
-  const mins = Math.floor(secondsLeft / 60)
-  const secs = secondsLeft % 60
-  const formatted = `${mins}:${String(secs).padStart(2, '0')}`
-
-  return (
-    <p className="mt-2 text-xs text-muted">
-      Next hint in{' '}
-      <span className="font-medium tabular-nums">{formatted}</span>
-    </p>
   )
 }
 

@@ -2,8 +2,12 @@
 
 import katex from 'katex'
 
-// Matches LaTeX delimiters: $$..$$, \[..\], \(..\)
-const MATH_PATTERN = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\))/g
+// Matches LaTeX delimiters: $$..$$, \[..\], \(..\), $..$ (single-dollar inline)
+// $$/$$ and \[/\] are checked first so they take priority over single $.
+// Single $ requires non-space at both ends and no newline inside to avoid
+// false-positives with currency like "$50".
+const MATH_PATTERN =
+  /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)[^\$\n]+?(?<!\s)\$)/g
 
 export default function MathText({ text, className = '' }) {
   const segments = splitByMath(String(text || ''))
@@ -82,6 +86,7 @@ function splitByMath(text) {
 
     const token = match[0]
     const display = token.startsWith('$$') || token.startsWith('\\[')
+    // Single $...$ is always inline
     parts.push({ type: 'math', display, value: unwrapMathToken(token) })
     lastIndex = match.index + token.length
   }
@@ -97,6 +102,7 @@ function unwrapMathToken(token) {
   if (token.startsWith('$$')) return token.slice(2, -2)
   if (token.startsWith('\\[')) return token.slice(2, -2)
   if (token.startsWith('\\(')) return token.slice(2, -2)
+  if (token.startsWith('$')) return token.slice(1, -1)  // single $...$
   return token
 }
 
