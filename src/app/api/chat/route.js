@@ -7,6 +7,7 @@ import {
   calculateInitialDelaySeconds,
   calculateMidProblemDelaySeconds,
 } from '@/lib/tutor/runtime'
+import { shouldFireMetacognitivePrompt } from '@/lib/tutor/metacognitivePrompting'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -148,6 +149,14 @@ async function handleFollowUp({ admin, body, condition, grade, userId }) {
     })
   }
 
+  const participantCounters = await loadParticipantCounters(admin, userId)
+  const metacognitivePromptDue = shouldFireMetacognitivePrompt({
+    mcpValue: effectiveCondition.mcp_value,
+    promptsOnCurrentProblem: attempt?.metacognitive_prompt_count || 0,
+    totalPromptsGiven: participantCounters.total_metacognitive_prompts_given,
+    problemsCompleted: participantCounters.problems_completed,
+  })
+
   const runtimeContext = buildRuntimeContext({
     condition: effectiveCondition,
     grade,
@@ -160,6 +169,7 @@ async function handleFollowUp({ admin, body, condition, grade, userId }) {
     initialHintDelaySeconds: hintState.initialHintDelaySeconds,
     midProblemDelaySeconds: hintState.midProblemDelaySeconds,
     hintCount: attempt?.hint_count || 0,
+    metacognitivePromptDue,
     conversation: body.conversation,
   })
 
@@ -236,6 +246,24 @@ async function loadParticipantCondition(admin, userId) {
   }
 
   return data.condition
+}
+
+// Fetches the participant's MCP counters needed by shouldFireMetacognitivePrompt.
+async function loadParticipantCounters(admin, userId) {
+  const { data, error } = await admin
+    .from('participants')
+    .select('total_metacognitive_prompts_given, problems_completed')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[api/chat] participant counters lookup failed:', error.message)
+  }
+
+  return {
+    total_metacognitive_prompts_given: Number(data?.total_metacognitive_prompts_given || 0),
+    problems_completed: Number(data?.problems_completed || 0),
+  }
 }
 
 // Fetches the participant's grade from their survey response.
