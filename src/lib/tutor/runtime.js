@@ -91,7 +91,7 @@ const FOLLOWUP_JSON_SHAPE =
 
 // Testing label instruction appended to every turn.
 const LABEL_NOTE =
-  'TESTING: end your message field with a newline and a label on its own line indicating the response type(s): [Hint], [Socratic], [Metacognitive], [Productive Failure], or comma-separated combinations e.g. [Socratic, Metacognitive].'
+  'TESTING: end your message field with a newline and a label on its own line. [Socratic] = question about the math content itself. [Metacognitive] = question about the student\'s own thinking process (confidence, approach, reasoning) — NOT the math. [Hint] = concrete solution step given. [Productive Failure] = first-turn send-off. Use comma-separated labels only when both genuinely apply. When in doubt, use [Socratic] not [Metacognitive].'
 
 function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue }) {
   if (isNewProblem) {
@@ -119,14 +119,14 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     return [
       'The student has asked for a hint, but they need to keep working independently right now.',
       'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
-      'Instead, respond with a genuine Socratic question or metacognitive prompt that encourages deeper thinking.',
+      'Instead, respond with a genuine Socratic question that encourages deeper thinking.',
       'Ask what they have tried so far, what they notice about the problem, what concept might apply, or where they feel stuck.',
       'Keep it short and curious — your goal is to get them thinking, not to lead them.',
       metacognitivePromptDue
-        ? 'A metacognitive reflection prompt is also due — weave one in naturally and set metacognitivePromptIncluded to true.'
-        : '',
+        ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
+        : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
       jsonNote,
-    ].filter(Boolean).join(' ')
+    ].join(' ')
   }
 
   if (hintsExhausted) {
@@ -136,10 +136,10 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Continue with Socratic guidance only.',
       'If the student has now arrived at the correct answer, set isProblemComplete to true.',
       metacognitivePromptDue
-        ? 'A metacognitive reflection prompt is due — weave one in naturally.'
-        : '',
+        ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
+        : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
       jsonNote,
-    ].filter(Boolean).join(' ')
+    ].join(' ')
   }
 
   if (hintAllowed) {
@@ -153,9 +153,9 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       '(e.g. "Great — before we move on, why did that step unlock the rest of the problem?").',
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is also due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
-        : '',
+        : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
       jsonNote,
-    ].filter(Boolean).join(' ')
+    ].join(' ')
   }
 
   return [
@@ -166,9 +166,9 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     '(e.g. "Well done! Walk me through how you figured that out.").',
     metacognitivePromptDue
       ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
-      : '',
+      : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
     jsonNote,
-  ].filter(Boolean).join(' ')
+  ].join(' ')
 }
 
 function formatConversation(conversation = []) {
