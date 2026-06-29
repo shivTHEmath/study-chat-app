@@ -35,7 +35,10 @@ export async function POST(request) {
     }
 
     const admin = createAdminClient()
-    const condition = await loadParticipantCondition(admin, user.id)
+    const [condition, grade] = await Promise.all([
+      loadParticipantCondition(admin, user.id),
+      loadParticipantGrade(admin, user.id),
+    ])
 
     if (!condition) {
       return Response.json(
@@ -47,10 +50,10 @@ export async function POST(request) {
     const phase = body.phase || 'follow_up'
 
     if (phase === 'new_problem') {
-      return await handleNewProblem({ admin, body, condition, userId: user.id })
+      return await handleNewProblem({ admin, body, condition, grade, userId: user.id })
     }
 
-    return await handleFollowUp({ admin, body, condition, userId: user.id })
+    return await handleFollowUp({ admin, body, condition, grade, userId: user.id })
   } catch (err) {
     console.error('[api/chat] failed:', err)
     return Response.json(
@@ -60,10 +63,10 @@ export async function POST(request) {
   }
 }
 
-async function handleNewProblem({ admin, body, condition, userId }) {
+async function handleNewProblem({ admin, body, condition, grade, userId }) {
   const runtimeContext = buildRuntimeContext({
     condition,
-    grade: body.grade,
+    grade,
     problem: body.problem,
     phase: 'new_problem',
     hintAllowed: false,
@@ -109,7 +112,7 @@ async function handleNewProblem({ admin, body, condition, userId }) {
   })
 }
 
-async function handleFollowUp({ admin, body, condition, userId }) {
+async function handleFollowUp({ admin, body, condition, grade, userId }) {
   const attempt = body.attemptId
     ? await loadProblemAttempt(admin, userId, body.attemptId)
     : null
@@ -147,7 +150,7 @@ async function handleFollowUp({ admin, body, condition, userId }) {
 
   const runtimeContext = buildRuntimeContext({
     condition: effectiveCondition,
-    grade: body.grade,
+    grade,
     problem: displayProblem,
     phase: 'follow_up',
     difficulty,
@@ -233,6 +236,26 @@ async function loadParticipantCondition(admin, userId) {
   }
 
   return data.condition
+}
+
+// Fetches the participant's grade from their survey response.
+// Grade is stored as responses->>'grade' (e.g. "7th grade", "8th grade").
+// Returns null if not found — buildRuntimeContext falls back to a generic label.
+async function loadParticipantGrade(admin, userId) {
+  const { data, error } = await admin
+    .from('survey_responses')
+    .select('responses')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[api/chat] grade lookup failed:', error.message)
+    return null
+  }
+
+  return data?.responses?.grade ?? null
 }
 
 function isValidCondition(condition) {
