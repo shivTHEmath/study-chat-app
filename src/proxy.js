@@ -45,7 +45,9 @@ export async function proxy(request) {
     return NextResponse.redirect(url)
   }
 
-  if (user && pathname === '/') {
+  // Authenticated users don't need the auth/onboarding pages.
+  const authOnlyRoutes = ['/', '/login', '/signup']
+  if (user && authOnlyRoutes.includes(pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = '/chat'
     return NextResponse.redirect(url)
