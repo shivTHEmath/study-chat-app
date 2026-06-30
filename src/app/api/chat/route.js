@@ -268,8 +268,8 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 async function askTutor(runtimeContext, studentMessage) {
   const response = await anthropic.messages.create({
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-    max_tokens: 500,
-    temperature: 0.4,
+    max_tokens: 200,
+    temperature: 0.2,
     system: TUTOR_SYSTEM_PROMPT,
     messages: [
       {
