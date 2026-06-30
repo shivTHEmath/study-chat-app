@@ -85,13 +85,20 @@ ${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelay
 `.trim()
 }
 
-// Shape returned for ALL follow-up turns (not new_problem).
-const FOLLOWUP_JSON_SHAPE =
-  '{"message":"student-facing response\\n\\n[Label]","isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false}'
+// Flags JSON template appended as the absolute last line of every follow-up response.
+// The model writes its prose message first, then this JSON on its own final line.
+const FLAGS_TEMPLATE =
+  '{"isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false,"responseType":"Socratic"}'
 
-// Testing label instruction appended to every turn.
-const LABEL_NOTE =
-  'TESTING: end your message field with a newline and a label on its own line. [Socratic] = question about the math content itself. [Metacognitive] = question about the student\'s own thinking process (confidence, approach, reasoning) — NOT the math. [Hint] = concrete solution step given. [Productive Failure] = first-turn send-off. Use comma-separated labels only when both genuinely apply. When in doubt, use [Socratic] not [Metacognitive].'
+// Instruction appended to every follow-up turn telling the model the output format.
+const FLAGS_NOTE = [
+  'IMPORTANT: Write your student-facing response as normal prose.',
+  'Then, on a NEW FINAL LINE (no text before or after it on that line), write ONLY this compact JSON',
+  `(replace boolean values and responseType as appropriate): ${FLAGS_TEMPLATE}`,
+  'responseType must be one of: "ProductiveFailure", "Socratic", "Hint", "Metacognitive", "Confirmation", "Redirect",',
+  'or a comma-separated combination when multiple genuinely apply.',
+  'The JSON line is consumed by the research system and never shown to the student.',
+].join(' ')
 
 function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue }) {
   if (isNewProblem) {
@@ -106,14 +113,10 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Encourage genuine independent effort — something in the spirit of:',
       '"Give this a real try on your own. Come back with your findings once you\'ve worked through it and we\'ll dig in together."',
       'Do not suggest any approach or mathematical concept.',
-      LABEL_NOTE,
-      'Return only valid JSON in this exact shape:',
-      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response\\n\\n[Productive Failure]"}.',
+      'Return ONLY valid JSON in this exact shape (no prose, no markdown, no extra keys):',
+      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response"}',
     ].join(' ')
   }
-
-  // All follow-up turns return JSON so the route can reliably read flags.
-  const jsonNote = `${LABEL_NOTE} Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
 
   if (hintRequestedButDelayed) {
     return [
@@ -125,7 +128,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
-      jsonNote,
+      FLAGS_NOTE,
     ].join(' ')
   }
 
@@ -138,7 +141,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
-      jsonNote,
+      FLAGS_NOTE,
     ].join(' ')
   }
 
@@ -152,7 +155,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
-      jsonNote,
+      FLAGS_NOTE,
     ].join(' ')
   }
 
@@ -163,7 +166,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     metacognitivePromptDue
       ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
       : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
-    jsonNote,
+    FLAGS_NOTE,
   ].join(' ')
 }
 

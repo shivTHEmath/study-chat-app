@@ -248,6 +248,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     attemptId: attempt?.id || null,
     displayProblem,
     isProblemComplete: parsed.isProblemComplete,
+    responseType: parsed.responseType,
     hintAllowed: hintState.hintAllowed,
     hintsExhausted: hintState.hintsExhausted,
     nextHintAvailableAt: hintState.nextHintAvailableAt,
@@ -271,7 +272,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 async function askTutor(runtimeContext, studentMessage) {
   const response = await anthropic.messages.create({
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-    max_tokens: 200,
+    max_tokens: 400,
     temperature: 0.2,
     system: TUTOR_SYSTEM_PROMPT,
     messages: [
@@ -539,53 +540,53 @@ function extractText(response) {
     .trim()
 }
 
-// Parses the structured JSON the model returns for every follow-up turn.
-// Three-stage fallback so raw JSON never leaks into the chat:
-//   1. JSON.parse on the stripped text
-//   2. Regex extraction of the first {...} block (handles extra prose around JSON)
-//   3. Regex extraction of just the "message" field value (handles malformed JSON)
+// Parses the follow-up response format:
+//   <prose message on one or more lines>
+//   {"isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false,"responseType":"Socratic"}
+//
+// Scans backwards for the last line that is a valid JSON object containing
+// isProblemComplete. The message is everything before that line.
+// Falls back to the old wrapper-JSON format if the model didn't follow instructions.
 function parseFollowUpResponse(text) {
-  const stripped = stripCodeFence(text)
+  const raw = String(text || '').trim()
+  const lines = raw.split('\n')
 
-  // Stage 1 — clean parse
+  // Primary path: new format — prose + compact flags JSON as the last line
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    if (!line.startsWith('{')) continue
+    try {
+      const flags = JSON.parse(line)
+      if ('isProblemComplete' in flags) {
+        const message = lines.slice(0, i).join('\n').trim() || raw
+        return {
+          message,
+          isProblemComplete: Boolean(flags.isProblemComplete),
+          hintGiven: Boolean(flags.hintGiven),
+          metacognitivePromptIncluded: Boolean(flags.metacognitivePromptIncluded),
+          responseType: typeof flags.responseType === 'string' ? flags.responseType : null,
+        }
+      }
+    } catch {}
+  }
+
+  // Fallback: old wrapper-JSON format {"message":"...","isProblemComplete":...}
+  const stripped = stripCodeFence(raw)
   const parsed = tryParseJson(stripped)
   if (parsed && typeof parsed.message === 'string') {
+    // Strip any [Label] suffix left over from the old format
+    const message = parsed.message.replace(/\n\[[\w\s,]+\]\s*$/, '').trim()
     return {
-      message: parsed.message.trim(),
+      message,
       isProblemComplete: Boolean(parsed.isProblemComplete),
       hintGiven: Boolean(parsed.hintGiven),
       metacognitivePromptIncluded: Boolean(parsed.metacognitivePromptIncluded),
+      responseType: null,
     }
   }
 
-  // Stage 2 — extract "message" value with regex (handles unescaped quotes /
-  // literal newlines inside the string that break JSON.parse)
-  const msgMatch = stripped.match(/"message"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
-  if (msgMatch) {
-    const message = unescapeJsonString(msgMatch[1]).trim()
-    if (message) {
-      return {
-        message,
-        isProblemComplete: /"isProblemComplete"\s*:\s*true/.test(stripped),
-        hintGiven: /"hintGiven"\s*:\s*true/.test(stripped),
-        metacognitivePromptIncluded: /"metacognitivePromptIncluded"\s*:\s*true/.test(stripped),
-      }
-    }
-  }
-
-  // Stage 3 — give up on JSON; use the raw text but strip any JSON fragments
-  // so the student sees readable prose rather than code
-  const cleaned = stripped
-    .replace(/^\s*\{[\s\S]*?"message"\s*:\s*"/, '')  // strip leading JSON up to message
-    .replace(/",?\s*"isProblemComplete"[\s\S]*$/, '') // strip trailing JSON flags
-    .replace(/^\s*"|"\s*$/, '')                        // strip wrapping quotes if any
-    .trim()
-  return {
-    message: cleaned || stripped,
-    isProblemComplete: false,
-    hintGiven: false,
-    metacognitivePromptIncluded: false,
-  }
+  // Final fallback: use raw text as-is
+  return { message: raw, isProblemComplete: false, hintGiven: false, metacognitivePromptIncluded: false, responseType: null }
 }
 
 function parseNewProblemResponse(text) {
@@ -597,7 +598,8 @@ function parseNewProblemResponse(text) {
     return {
       displayProblem: parsed.displayProblem.trim(),
       difficulty: clampDifficulty(parsed.difficulty),
-      message: parsed.message.trim(),
+      // Strip any old [Label] suffix the model may have included
+      message: parsed.message.replace(/\n\[[\w\s,]+\]\s*$/, '').trim(),
     }
   }
 
@@ -608,7 +610,7 @@ function parseNewProblemResponse(text) {
     return {
       displayProblem: unescapeJsonString(dpMatch[1]).trim(),
       difficulty: clampDifficulty((stripped.match(/"difficulty"\s*:\s*(\d)/) || [])[1]),
-      message: unescapeJsonString(msgMatch[1]).trim(),
+      message: unescapeJsonString(msgMatch[1]).replace(/\n\[[\w\s,]+\]\s*$/, '').trim(),
     }
   }
 
