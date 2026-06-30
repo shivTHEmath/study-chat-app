@@ -364,8 +364,6 @@ async function loadParticipantGrade(admin, userId) {
     .from('survey_responses')
     .select('responses')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1)
     .maybeSingle()
 
   if (error) {
@@ -479,29 +477,32 @@ async function incrementMcpCount(admin, attemptId, userId) {
 
   const newCount = Number(data?.metacognitive_prompt_count || 0) + 1
 
-  const [{ error: attemptErr }, { error: participantErr }] = await Promise.all([
-    admin
-      .from('problem_attempts')
-      .update({ metacognitive_prompt_count: newCount, updated_at: new Date().toISOString() })
-      .eq('id', attemptId),
-    admin.rpc('increment_mcp_total', { p_user_id: userId }).catch(() =>
-      // Fallback if RPC doesn't exist: read-then-write (race-safe enough for study use)
-      admin
-        .from('participants')
-        .select('total_metacognitive_prompts_given')
-        .eq('user_id', userId)
-        .single()
-        .then(({ data: p }) =>
-          admin
-            .from('participants')
-            .update({ total_metacognitive_prompts_given: Number(p?.total_metacognitive_prompts_given || 0) + 1 })
-            .eq('user_id', userId)
-        )
-    ),
-  ])
+  const { error: attemptErr } = await admin
+    .from('problem_attempts')
+    .update({ metacognitive_prompt_count: newCount, updated_at: new Date().toISOString() })
+    .eq('id', attemptId)
 
   if (attemptErr) console.error('[api/chat] mcp attempt update failed:', attemptErr.message)
-  if (participantErr) console.error('[api/chat] mcp participant update failed:', participantErr.message)
+
+  // Read-then-write for participant total (concurrent MCP requests on the same
+  // problem are impossible since the UI blocks while a request is in-flight).
+  const { data: p, error: pReadErr } = await admin
+    .from('participants')
+    .select('total_metacognitive_prompts_given')
+    .eq('user_id', userId)
+    .single()
+
+  if (pReadErr) {
+    console.error('[api/chat] mcp participant read failed:', pReadErr.message)
+    return
+  }
+
+  const { error: pWriteErr } = await admin
+    .from('participants')
+    .update({ total_metacognitive_prompts_given: Number(p?.total_metacognitive_prompts_given || 0) + 1 })
+    .eq('user_id', userId)
+
+  if (pWriteErr) console.error('[api/chat] mcp participant update failed:', pWriteErr.message)
 }
 
 // Marks the current problem as solved: increments problems_completed on the
