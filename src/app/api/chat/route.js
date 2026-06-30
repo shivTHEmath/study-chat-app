@@ -226,7 +226,10 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     await incrementHintCount(admin, attempt.id)
   }
 
-  if (attempt?.id && parsed.metacognitivePromptIncluded) {
+  // Increment counter based on whether WE instructed an MCP this turn,
+  // not on the AI's self-report. This prevents counter drift caused by
+  // the AI misreporting the metacognitivePromptIncluded flag.
+  if (attempt?.id && metacognitivePromptDue) {
     await incrementMcpCount(admin, attempt.id, userId)
   }
 

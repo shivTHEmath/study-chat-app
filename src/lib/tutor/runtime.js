@@ -148,11 +148,9 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Give only the next useful hint, calibrated to the answer specificity level.',
       'Use LaTeX delimiters for all math.',
       'Do not give the final answer or full solution. Set hintGiven to true.',
-      'If this hint leads the student to the correct answer, set isProblemComplete to true',
-      'and include an Answer/Solution Justification metacognitive prompt in your message',
-      '(e.g. "Great — before we move on, why did that step unlock the rest of the problem?").',
+      'If this hint leads the student to the correct answer, set isProblemComplete to true.',
       metacognitivePromptDue
-        ? 'A metacognitive reflection prompt is also due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
+        ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
       jsonNote,
     ].join(' ')
@@ -161,9 +159,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
   return [
     'Respond to the student. Do not provide a concrete hint or final answer.',
     'Use Socratic guidance to help the student make progress independently.',
-    'If the student has now arrived at the correct answer, set isProblemComplete to true',
-    'and include an Answer/Solution Justification prompt in your message',
-    '(e.g. "Well done! Walk me through how you figured that out.").',
+    'If the student has now arrived at the correct answer, set isProblemComplete to true.',
     metacognitivePromptDue
       ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
       : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
