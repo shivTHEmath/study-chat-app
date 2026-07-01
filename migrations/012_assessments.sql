@@ -1,13 +1,13 @@
--- Assessments: 10 generated transfer/calibration problems every 2 hours.
+-- Assessments: 10 generated transfer/calibration problems every 10 minutes.
 -- Assessments become available only between problems. Starting one opens a
 -- 30-minute window; submissions store both performance and confidence.
 
 alter table participants
   add column if not exists next_assessment_due_at timestamptz
-    default (now() + interval '2 hours');
+    default (now() + interval '10 minutes');
 
 update participants
-set next_assessment_due_at = now() + interval '2 hours'
+set next_assessment_due_at = now() + interval '10 minutes'
 where next_assessment_due_at is null;
 
 create table if not exists assessments (

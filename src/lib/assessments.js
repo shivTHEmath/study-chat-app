@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const ASSESSMENT_INTERVAL_MS = 2 * 60 * 60 * 1000
+const ASSESSMENT_INTERVAL_MS = 10 * 60 * 1000
 const ASSESSMENT_DURATION_MINUTES = 30
 const ASSESSMENT_ITEM_COUNT = 10
 const ASSESSMENT_MODEL =
