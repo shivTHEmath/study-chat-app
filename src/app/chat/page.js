@@ -51,7 +51,7 @@ export default function ChatPage() {
       try {
         const res = await fetch('/api/assessments/status')
         const data = await res.json()
-        if (res.ok && data.assessmentAvailable && !data.blockedByActiveProblem) {
+        if (res.ok && data.assessmentAvailable) {
           setAssessmentAvailable(true)
         }
       } catch {

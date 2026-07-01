@@ -107,18 +107,6 @@ async function fetchAssessmentItems(admin, assessmentId, includeAnswers = false)
   return data || []
 }
 
-async function hasActiveProblem(admin, userId) {
-  const { data } = await admin
-    .from('problem_attempts')
-    .select('id, completed_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  return Boolean(data && !data.completed_at)
-}
-
 async function scheduleNextAssessment(admin, userId, now = new Date()) {
   const nextDueAt = addMs(now, ASSESSMENT_INTERVAL_MS).toISOString()
   await admin
@@ -298,6 +286,25 @@ async function createPendingAssessment(admin, userId, participant, now = new Dat
   return { assessment, items: items || [] }
 }
 
+// Cheap "is an assessment due right now?" check — no LLM generation, no writes
+// beyond lazily seeding the schedule. Use this on hot paths (chat turns, status
+// polling) to decide whether to surface the banner. Actual generation of the 10
+// problems is deferred to startAssessment(), which only runs when the student
+// opens the assessment.
+async function isAssessmentDue(admin, userId, participant, now = new Date()) {
+  const open = await fetchOpenAssessment(admin, userId)
+  if (open) {
+    return { due: true, open, nextDueAt: participant?.next_assessment_due_at ?? null }
+  }
+
+  const nextDueAt = await ensureAssessmentSchedule(admin, userId, participant, now)
+  return {
+    due: new Date(nextDueAt).getTime() <= now.getTime(),
+    open: null,
+    nextDueAt,
+  }
+}
+
 async function maybeCreateDueAssessment(admin, userId, participant, now = new Date()) {
   const open = await fetchOpenAssessment(admin, userId)
   if (open) {
@@ -307,10 +314,6 @@ async function maybeCreateDueAssessment(admin, userId, participant, now = new Da
   const nextDueAt = await ensureAssessmentSchedule(admin, userId, participant, now)
   if (new Date(nextDueAt).getTime() > now.getTime()) {
     return { assessment: null, items: [], nextDueAt }
-  }
-
-  if (await hasActiveProblem(admin, userId)) {
-    return { assessment: null, items: [], nextDueAt, blockedByActiveProblem: true }
   }
 
   return createPendingAssessment(admin, userId, participant, now)
@@ -417,7 +420,13 @@ async function evaluateResponses({ items, responses }) {
   }
 }
 
-async function submitAssessment(admin, userId, assessmentId, responses, now = new Date()) {
+async function submitAssessment(
+  admin,
+  userId,
+  assessmentId,
+  responses,
+  { allowPartial = false, now = new Date() } = {}
+) {
   const { data: assessment } = await admin
     .from('assessments')
     .select('*')
@@ -444,7 +453,10 @@ async function submitAssessment(admin, userId, assessmentId, responses, now = ne
     }
   })
 
-  if (normalizedResponses.some((response) => !response.answer)) {
+  // On a manual submit we require every problem answered. On a timeout auto-submit
+  // (allowPartial) we accept blanks — an unanswered item simply scores 0, so the
+  // transfer/calibration data from the answered items is still captured.
+  if (!allowPartial && normalizedResponses.some((response) => !response.answer)) {
     return { error: 'Please answer every assessment problem before submitting.', status: 400 }
   }
 
@@ -522,6 +534,7 @@ export {
   expireAssessment,
   fetchAssessmentItems,
   fetchOpenAssessment,
+  isAssessmentDue,
   maybeCreateDueAssessment,
   publicAssessment,
   scheduleNextAssessment,

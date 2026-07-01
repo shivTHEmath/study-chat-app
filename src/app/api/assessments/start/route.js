@@ -51,7 +51,6 @@ export async function POST() {
           result.unavailableReason === 'no_source_questions'
             ? 'There are not enough prior questions to build an assessment yet.'
             : 'No assessment is available yet.',
-        blockedByActiveProblem: Boolean(result.blockedByActiveProblem),
         nextDueAt: result.nextDueAt || participant.next_assessment_due_at,
       },
       { status: 409 }

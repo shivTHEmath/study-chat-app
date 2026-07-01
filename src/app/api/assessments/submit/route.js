@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { submitAssessment } from '@/lib/assessments'
 
 export async function POST(request) {
-  const { assessmentId, responses } = await request.json()
+  const { assessmentId, responses, allowPartial } = await request.json()
   if (!assessmentId || !Array.isArray(responses)) {
     return Response.json({ error: 'Missing assessment responses.' }, { status: 400 })
   }
@@ -19,7 +19,9 @@ export async function POST(request) {
   }
 
   const admin = createAdminClient()
-  const result = await submitAssessment(admin, user.id, assessmentId, responses)
+  const result = await submitAssessment(admin, user.id, assessmentId, responses, {
+    allowPartial: Boolean(allowPartial),
+  })
 
   if (result.error) {
     return Response.json({ error: result.error }, { status: result.status || 400 })

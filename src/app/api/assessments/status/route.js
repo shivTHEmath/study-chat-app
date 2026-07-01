@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   expireAssessment,
   fetchAssessmentItems,
-  maybeCreateDueAssessment,
+  isAssessmentDue,
   publicAssessment,
 } from '@/lib/assessments'
 
@@ -43,23 +43,24 @@ export async function GET() {
     return Response.json({ error: 'Participant record not found.' }, { status: 404 })
   }
 
-  const result = await maybeCreateDueAssessment(admin, user.id, participant)
-  let assessment = result.assessment
-  let items = result.items || []
+  // Cheap due-check only — never generate here. A due assessment is generated
+  // lazily when the student opens it (POST /api/assessments/start).
+  const result = await isAssessmentDue(admin, user.id, participant)
+  let open = result.open
+  let items = []
 
-  if (assessment?.status === 'in_progress') {
-    assessment = await expireAssessment(admin, assessment)
-    items = assessment.status === 'in_progress' ? await fetchAssessmentItems(admin, assessment.id) : []
+  // An in-progress assessment past its 30-minute window is expired on read.
+  if (open?.status === 'in_progress') {
+    open = await expireAssessment(admin, open)
+    items = open.status === 'in_progress' ? await fetchAssessmentItems(admin, open.id) : []
   }
 
+  const available = result.due && open?.status !== 'expired'
+
   return Response.json({
-    assessmentAvailable: Boolean(assessment && assessment.status !== 'expired'),
-    blockedByActiveProblem: Boolean(result.blockedByActiveProblem),
-    unavailableReason: result.unavailableReason || null,
+    assessmentAvailable: Boolean(available),
     nextDueAt: result.nextDueAt || participant.next_assessment_due_at,
     assessment:
-      assessment && assessment.status !== 'expired'
-        ? publicAssessment(assessment, items)
-        : null,
+      open && open.status !== 'expired' ? publicAssessment(open, items) : null,
   })
 }

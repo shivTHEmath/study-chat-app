@@ -10,7 +10,7 @@ import {
 } from '@/lib/tutor/runtime'
 import { metacognitiveTargetForProblem } from '@/lib/tutor/metacognitivePrompting'
 import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
-import { maybeCreateDueAssessment } from '@/lib/assessments'
+import { isAssessmentDue } from '@/lib/assessments'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -156,9 +156,18 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     tokensOut: usage?.output ?? null,
   })
 
+  // Starting a new problem is a natural "between problems" boundary: the previous
+  // problem is done. If an assessment has come due since last time, surface the
+  // banner now. Cheap check only — the 10 problems are generated when the student
+  // actually opens the assessment, so this doesn't slow the tutor response.
+  const { due: assessmentAvailable } = await isAssessmentDue(admin, userId, {
+    next_assessment_due_at: participantCounters.next_assessment_due_at,
+  })
+
   return Response.json({
     attemptId: attempt?.id || null,
     displayProblem,
+    assessmentAvailable,
     hintAllowed: false,
     nextHintAvailableAt: toFutureIso(initialHintDelaySeconds),
     clockState: {
@@ -332,12 +341,12 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   let assessmentAvailable = false
   if (parsed.isProblemComplete && attempt?.id) {
     await completeProblem(admin, userId, participantCounters.problems_completed, attempt.id)
-    const assessmentResult = await maybeCreateDueAssessment(admin, userId, {
-      ...participantCounters,
-      grade,
-      problems_completed: Number(participantCounters.problems_completed || 0) + 1,
+    // Finishing a problem is the ideal moment to surface a due assessment. Cheap
+    // check only; generation is deferred to when the student opens it.
+    const { due } = await isAssessmentDue(admin, userId, {
+      next_assessment_due_at: participantCounters.next_assessment_due_at,
     })
-    assessmentAvailable = Boolean(assessmentResult.assessment)
+    assessmentAvailable = due
   }
 
   await logQuestion(admin, userId, {
