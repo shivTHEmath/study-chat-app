@@ -145,7 +145,15 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     difficulty,
   })
 
-  await logQuestion(admin, userId, displayProblem, tutorMessage)
+  await logQuestion(admin, userId, {
+    question: displayProblem,
+    response: tutorMessage,
+    studentMessage: body.studentMessage,
+    attemptId: attempt?.id || null,
+    phase: 'new_problem',
+    tokensIn: usage?.input ?? null,
+    tokensOut: usage?.output ?? null,
+  })
 
   return Response.json({
     attemptId: attempt?.id || null,
@@ -318,7 +326,15 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     await completeProblem(admin, userId, participantCounters.problems_completed)
   }
 
-  await logQuestion(admin, userId, displayProblem, tutorMessage)
+  await logQuestion(admin, userId, {
+    question: displayProblem,
+    response: tutorMessage,
+    studentMessage: body.studentMessage,
+    attemptId: attempt?.id || null,
+    phase: 'follow_up',
+    tokensIn: usage?.input ?? null,
+    tokensOut: usage?.output ?? null,
+  })
 
   return Response.json({
     attemptId: attempt?.id || null,
@@ -683,11 +699,16 @@ async function completeProblem(admin, userId, currentProblemsCompleted) {
   }
 }
 
-async function logQuestion(admin, userId, question, response) {
+async function logQuestion(admin, userId, { question, response, studentMessage, attemptId, phase, tokensIn, tokensOut }) {
   const { error } = await admin.from('questions').insert({
     user_id: userId,
     question,
     response,
+    student_message: studentMessage ?? null,
+    attempt_id: attemptId ?? null,
+    phase: phase ?? null,
+    tokens_in: tokensIn ?? null,
+    tokens_out: tokensOut ?? null,
   })
 
   if (error) {
