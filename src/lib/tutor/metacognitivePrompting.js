@@ -42,3 +42,27 @@ export function shouldFireMetacognitivePrompt({
   const targetTotal = problemsSeen * mcp
   return Number(totalPromptsGiven) < targetTotal
 }
+
+/**
+ * The maximum number of metacognitive prompts to deliver on the CURRENT problem
+ * (the per-problem budget/ceiling). The server enforces this ceiling; the AI
+ * decides when within the problem to spend it.
+ *
+ * - mcp_value >= 1  → round(mcp_value) prompts this problem.
+ * - mcp_value  < 1  → 1 if the running delivered rate is below target, else 0.
+ *
+ * @returns {number}
+ */
+export function metacognitiveTargetForProblem({
+  mcpValue,
+  totalPromptsGiven,
+  problemsCompleted,
+}) {
+  const mcp = Number(mcpValue)
+  if (!Number.isFinite(mcp) || mcp <= 0) return 0
+  if (mcp >= 1) return Math.round(mcp)
+
+  const problemsSeen = Number(problemsCompleted) + 1
+  const targetTotal = problemsSeen * mcp
+  return Number(totalPromptsGiven) < targetTotal ? 1 : 0
+}

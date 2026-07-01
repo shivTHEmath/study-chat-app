@@ -299,6 +299,8 @@ export default function ChatPage() {
         engagedHours: data.debug?.engagedHours ?? null,
         mcpCount: data.debug?.mcpCount ?? null,
         mcpTotal: data.debug?.mcpTotal ?? null,
+        mcpTarget: data.debug?.mcpTarget ?? null,
+        mcpRemaining: data.debug?.mcpRemaining ?? null,
         mcpAwaiting: data.debug?.mcpAwaiting ?? false,
         mcpReask: data.debug?.mcpReask ?? 0,
       })
@@ -523,7 +525,8 @@ function DebugPanel({ state }) {
     ['hints', `${state.hintCount} / ${state.maxHints}`],
     ['hint allowed', state.hintAllowed ? '✓' : '✗'],
     ['hints exhausted', state.hintsExhausted ? '✓' : '✗'],
-    ['metacog prompts', state.mcpCount != null ? `${state.mcpCount} (total ${state.mcpTotal ?? '—'})` : '—'],
+    ['metacog prompts', state.mcpCount != null ? `${state.mcpCount} / ${state.mcpTarget ?? '—'} (total ${state.mcpTotal ?? '—'})` : '—'],
+    ['  ↳ remaining', state.mcpRemaining ?? '—'],
     ['  ↳ awaiting answer', state.mcpAwaiting ? `✓ (re-ask ${state.mcpReask})` : '✗'],
     ['problem complete', state.isProblemComplete ? '✓' : '✗'],
     ['initial delay', `${state.initialDelay}s`],

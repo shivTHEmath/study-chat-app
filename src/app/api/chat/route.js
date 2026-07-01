@@ -8,7 +8,7 @@ import {
   calculateMidProblemDelaySeconds,
   calculateFadeMultiplier,
 } from '@/lib/tutor/runtime'
-import { shouldFireMetacognitivePrompt } from '@/lib/tutor/metacognitivePrompting'
+import { metacognitiveTargetForProblem } from '@/lib/tutor/metacognitivePrompting'
 import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
 
 const anthropic = new Anthropic({
@@ -233,16 +233,17 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   const mcpAwaitingAnswer = Boolean(attempt?.mcp_awaiting_answer)
   const mcpReaskCount = Number(attempt?.mcp_reask_count || 0)
 
-  // Don't fire a NEW metacognitive prompt while we're still waiting on the last
-  // one — that would stack prompts. Resolve the outstanding one first.
-  const metacognitivePromptDue = mcpAwaitingAnswer
-    ? false
-    : shouldFireMetacognitivePrompt({
-        mcpValue: effectiveCondition.mcp_value, // mcp_value unfaded — intentional
-        promptsOnCurrentProblem: attempt?.metacognitive_prompt_count || 0,
-        totalPromptsGiven: participantCounters.total_metacognitive_prompts_given,
-        problemsCompleted: participantCounters.problems_completed,
-      })
+  // Per-problem MCP budget. The server sets the ceiling; the AI decides WHEN to
+  // spend it across the conversation (see mcpGuidance in runtime.js).
+  const mcpGiven = Number(attempt?.metacognitive_prompt_count || 0)
+  const mcpTarget = metacognitiveTargetForProblem({
+    mcpValue: effectiveCondition.mcp_value, // mcp_value unfaded — intentional
+    totalPromptsGiven: participantCounters.total_metacognitive_prompts_given,
+    problemsCompleted: participantCounters.problems_completed,
+  })
+  const mcpRemaining = Math.max(0, mcpTarget - mcpGiven)
+  // Not allowed while awaiting an answer to a prior prompt (no stacking).
+  const mcpAllowedThisTurn = !mcpAwaitingAnswer && mcpRemaining > 0
 
   const runtimeContext = buildRuntimeContext({
     condition: fadedCondition,
@@ -259,7 +260,10 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     hintCount: attempt?.hint_count || 0,
     maxHints: hintState.maxHints,
     hintsExhausted: hintState.hintsExhausted,
-    metacognitivePromptDue,
+    mcpAllowedThisTurn,
+    mcpTarget,
+    mcpGiven,
+    mcpRemaining,
     mcpAwaitingAnswer,
     mcpReaskCount,
     conversation: body.conversation,
@@ -282,10 +286,12 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     await incrementHintCount(admin, attempt.id)
   }
 
-  // Increment counter based on whether WE instructed an MCP this turn,
-  // not on the AI's self-report. This prevents counter drift caused by
-  // the AI misreporting the metacognitivePromptIncluded flag.
-  if (attempt?.id && metacognitivePromptDue) {
+  // A metacognitive prompt counts only if it was ALLOWED this turn (budget > 0,
+  // not awaiting) AND the AI actually included one. The budget gate caps the
+  // count at the target so it can never exceed the assigned rate.
+  const mcpDelivered = mcpAllowedThisTurn && parsed.metacognitivePromptIncluded
+
+  if (attempt?.id && mcpDelivered) {
     await incrementMcpCount(admin, attempt.id, userId)
   }
 
@@ -305,7 +311,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
         resultAwaiting = resultReask < 3
       }
       await updateMcpAwaitState(admin, attempt.id, resultAwaiting, resultReask)
-    } else if (metacognitivePromptDue) {
+    } else if (mcpDelivered) {
       // A fresh MCP was delivered this turn — start awaiting its answer.
       resultAwaiting = true
       resultReask = 0
@@ -313,9 +319,9 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     }
   }
 
-  // Current MCP counts (including this turn's increment, if any) for the debug panel.
-  const mcpCountNow = (Number(attempt?.metacognitive_prompt_count || 0)) + (metacognitivePromptDue ? 1 : 0)
-  const mcpTotalNow = Number(participantCounters.total_metacognitive_prompts_given || 0) + (metacognitivePromptDue ? 1 : 0)
+  // Current MCP counts (including this turn's delivery, if any) for the debug panel.
+  const mcpCountNow = mcpGiven + (mcpDelivered ? 1 : 0)
+  const mcpTotalNow = Number(participantCounters.total_metacognitive_prompts_given || 0) + (mcpDelivered ? 1 : 0)
 
   // ── Problem completion ───────────────────────────────────────────────────────
   // When the model signals the student has arrived at the correct answer:
@@ -365,6 +371,8 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
       engagedHours: cumulativeEngagedHours,
       mcpCount: mcpCountNow,
       mcpTotal: mcpTotalNow,
+      mcpTarget,
+      mcpRemaining: Math.max(0, mcpTarget - mcpCountNow),
       mcpAwaiting: resultAwaiting,
       mcpReask: resultReask,
     },

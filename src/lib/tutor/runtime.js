@@ -41,7 +41,10 @@ export function buildRuntimeContext({
   hintCount,
   maxHints,
   hintsExhausted,
-  metacognitivePromptDue,
+  mcpAllowedThisTurn,
+  mcpTarget,
+  mcpGiven,
+  mcpRemaining,
   mcpAwaitingAnswer,
   mcpReaskCount,
   conversation,
@@ -77,14 +80,15 @@ Runtime state:
 - Seconds since problem started: ${Math.max(0, Math.round(secondsSinceProblemStarted || 0))}
 - Initial hint delay required: ${initialHintDelaySeconds || 'not yet calculated'} seconds
 - Mid-problem hint delay required: ${midProblemDelaySeconds || 'not yet calculated'} seconds
-- Metacognitive prompt due: ${metacognitivePromptDue ? 'true' : 'false'}
+- Metacognitive prompts on this problem: ${Math.max(0, Number(mcpGiven || 0))} given, target ${mcpTarget ?? 0} total, ${Math.max(0, Number(mcpRemaining || 0))} remaining
+- Metacognitive prompt allowed this turn: ${mcpAllowedThisTurn ? 'true' : 'false'}
 - Awaiting answer to a previous metacognitive prompt: ${mcpAwaitingAnswer ? 'true' : 'false'}
 
 Recent conversation:
 ${formatConversation(conversation)}
 
 Instruction for this response:
-${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), hintsExhausted: Boolean(hintsExhausted), metacognitivePromptDue: Boolean(metacognitivePromptDue), mcpAwaitingAnswer: Boolean(mcpAwaitingAnswer), mcpReaskCount: Number(mcpReaskCount || 0) })}
+${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), hintsExhausted: Boolean(hintsExhausted), mcpAllowedThisTurn: Boolean(mcpAllowedThisTurn), mcpTarget: Number(mcpTarget || 0), mcpGiven: Number(mcpGiven || 0), mcpRemaining: Number(mcpRemaining || 0), difficulty: Number(difficulty || 3), mcpAwaitingAnswer: Boolean(mcpAwaitingAnswer), mcpReaskCount: Number(mcpReaskCount || 0) })}
 `.trim()
 }
 
@@ -103,7 +107,7 @@ const FLAGS_NOTE = [
   'The JSON line is consumed by the research system and never shown to the student.',
 ].join(' ')
 
-function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue, mcpAwaitingAnswer, mcpReaskCount }) {
+function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, mcpAllowedThisTurn, mcpTarget, mcpGiven, mcpRemaining, difficulty, mcpAwaitingAnswer, mcpReaskCount }) {
   if (isNewProblem) {
     return [
       'The student has submitted a new problem.',
@@ -127,6 +131,20 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
   // the gentle, question-shaped guidance role; outside an allowed hint the
   // tutor only acknowledges and encourages.
   const NO_SOCRATIC = 'Do NOT ask any Socratic questions this turn. Do not ask the student what they have tried, where they are stuck, or any open-ended process question.'
+
+  // Metacognitive prompt pacing. The server enforces the budget (mcpRemaining
+  // can never exceed the assigned rate), but the AI chooses WHEN to place the
+  // remaining prompts — predicting how much longer the conversation will run
+  // and spreading them so the delivered count lands on the target, evenly.
+  const mcpGuidance = mcpAllowedThisTurn
+    ? [
+        `METACOGNITIVE PACING: You have ${mcpRemaining} metacognitive prompt(s) left to deliver on this problem (target ${mcpTarget} total for the whole problem; ${mcpGiven} already given).`,
+        `Predict how much longer this conversation is likely to last from the problem's difficulty (${difficulty}/5) and how the student is progressing, then decide whether NOW is the right moment for one so that your remaining prompts end up spread evenly across the rest of the conversation — not clustered at the start or all at once.`,
+        'You MUST deliver every remaining prompt before the problem is finished: if the student looks close to the final answer or the problem is about to wrap up, deliver the remaining prompt(s) now (an Answer/Solution Justification prompt fits well at the end).',
+        'If you include a metacognitive prompt this turn, weave it in naturally and set metacognitivePromptIncluded to true; if the timing is not right yet, set it to false.',
+        `Never deliver more than ${mcpRemaining} this turn, and never exceed the per-problem target of ${mcpTarget}.`,
+      ].join(' ')
+    : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.'
 
   // Highest priority: a metacognitive prompt from a previous turn is still
   // unanswered. Withhold further support until the student engages with it —
@@ -154,9 +172,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
       'Respond with a brief, warm message telling them to keep working.',
       NO_SOCRATIC,
-      metacognitivePromptDue
-        ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
-        : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
+      mcpGuidance,
       FLAGS_NOTE,
     ].join(' ')
   }
@@ -168,9 +184,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Respond with brief, warm encouragement only.',
       'If the student has now arrived at the correct answer, set isProblemComplete to true.',
       NO_SOCRATIC,
-      metacognitivePromptDue
-        ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
-        : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
+      mcpGuidance,
       FLAGS_NOTE,
     ].join(' ')
   }
@@ -183,9 +197,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Do not give the final answer or full solution. Set hintGiven to true.',
       'If this hint leads the student to the correct answer, set isProblemComplete to true.',
       NO_SOCRATIC,
-      metacognitivePromptDue
-        ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
-        : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
+      mcpGuidance,
       FLAGS_NOTE,
     ].join(' ')
   }
@@ -195,9 +207,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     'Acknowledge their message and encourage continued effort.',
     'If the student has now arrived at the correct answer, set isProblemComplete to true.',
     NO_SOCRATIC,
-    metacognitivePromptDue
-      ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
-      : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
+    mcpGuidance,
     FLAGS_NOTE,
   ].join(' ')
 }
