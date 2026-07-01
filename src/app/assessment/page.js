@@ -25,7 +25,9 @@ export default function AssessmentPage() {
   const [error, setError] = useState('')
   const [assessment, setAssessment] = useState(null)
   const [answers, setAnswers] = useState({})
-  const [confidences, setConfidences] = useState({})
+  const [selfEstimate, setSelfEstimate] = useState(null) // 0..10, how many they think they got
+  const [learning, setLearning] = useState(null) // 1..5
+  const [difficulty, setDifficulty] = useState(null) // 1..3
   const [result, setResult] = useState(null)
   const [now, setNow] = useState(Date.now())
 
@@ -97,14 +99,20 @@ export default function AssessmentPage() {
       const responses = assessment.items.map((item) => ({
         itemId: item.id,
         answer: answers[item.id] || '',
-        confidence: confidences[item.id] ?? 50,
       }))
 
       try {
         const res = await fetch('/api/assessments/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assessmentId: assessment.id, responses, allowPartial: auto }),
+          body: JSON.stringify({
+            assessmentId: assessment.id,
+            responses,
+            allowPartial: auto,
+            selfEstimatedCorrect: selfEstimate,
+            selfRatedLearning: learning,
+            selfRatedDifficulty: difficulty,
+          }),
         })
         const data = await res.json()
         if (!res.ok) {
@@ -122,7 +130,7 @@ export default function AssessmentPage() {
         setSubmitting(false)
       }
     },
-    [assessment, answers, confidences]
+    [assessment, answers, selfEstimate, learning, difficulty]
   )
 
   const timeLeftMs =
@@ -138,6 +146,8 @@ export default function AssessmentPage() {
   const items = assessment?.items || []
   const answeredCount = items.filter((it) => (answers[it.id] || '').trim()).length
   const allAnswered = items.length > 0 && answeredCount === items.length
+  const selfReportComplete = selfEstimate !== null && learning !== null && difficulty !== null
+  const canSubmit = allAnswered && selfReportComplete
   const lowTime = timeLeftMs !== null && timeLeftMs <= 5 * 60 * 1000
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -183,9 +193,9 @@ export default function AssessmentPage() {
           </p>
 
           <ul className="mt-5 space-y-3">
-            <Fact label="10 problems" detail="Built from the topics you've worked on." />
+            <Fact label="10 problems" detail="Short-answer questions built from the topics you've worked on." />
             <Fact label="30 minutes" detail="The timer starts when you press begin, and can't be paused." />
-            <Fact label="Rate your confidence" detail="For each answer, say how sure you are from 0 to 100%." />
+            <Fact label="A few questions at the end" detail="You'll estimate your score and rate the test once you're done." />
           </ul>
 
           {error && <p className="mt-4 text-sm text-danger">{error}</p>}
@@ -216,13 +226,13 @@ export default function AssessmentPage() {
           <p className="mt-2 text-sm text-muted">Thanks — your responses have been recorded.</p>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <Metric label="Score" value={formatPercent(result.score)} />
-            <Metric label="Mean confidence" value={formatPercent(result.meanConfidence)} />
+            <Metric label="Actual score" value={formatPercent(result.score)} />
+            <Metric label="You predicted" value={formatPercent(result.selfEstimatedScore)} />
             <Metric label="Calibration gap" value={formatPercent(result.calibrationError)} />
           </div>
           <p className="mt-3 text-xs text-faint leading-relaxed">
-            The calibration gap is the average distance between how confident you felt and how
-            you actually did. Lower is better — it means your sense of certainty matches reality.
+            The calibration gap is the distance between the score you predicted and the score you
+            actually got. Lower is better — it means your sense of how you did matches reality.
           </p>
 
           {result.submittedLate && (
@@ -297,28 +307,67 @@ export default function AssessmentPage() {
                   placeholder="Show your reasoning and give the answer"
                   className="field resize-none"
                 />
-
-                <div className="mt-4 flex items-center justify-between">
-                  <label className="label mb-0" htmlFor={`c-${item.id}`}>How sure are you?</label>
-                  <span className="text-sm font-semibold text-primary tabular-nums">
-                    {confidences[item.id] ?? 50}%
-                  </span>
-                </div>
-                <input
-                  id={`c-${item.id}`}
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={confidences[item.id] ?? 50}
-                  onChange={(e) =>
-                    setConfidences((c) => ({ ...c, [item.id]: Number(e.target.value) }))
-                  }
-                  className="mt-2 w-full accent-primary"
-                />
               </section>
             )
           })}
+
+          {/* End-of-test self report */}
+          <section className="card p-5">
+            <p className="eyebrow">Before you submit</p>
+            <h2 className="font-serif text-lg text-ink mt-1">A few quick questions</h2>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between">
+                <label className="label mb-0" htmlFor="self-estimate">
+                  Out of {items.length}, how many do you think you got right?
+                </label>
+                <span className="text-sm font-semibold text-primary tabular-nums">
+                  {selfEstimate ?? '—'}
+                </span>
+              </div>
+              <input
+                id="self-estimate"
+                type="range"
+                min="0"
+                max={items.length}
+                step="1"
+                value={selfEstimate ?? 0}
+                onChange={(e) => setSelfEstimate(Number(e.target.value))}
+                className="mt-2 w-full accent-primary"
+              />
+              {selfEstimate === null && (
+                <p className="mt-1 text-xs text-faint">Drag to set your estimate.</p>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <p className="label">How well do you feel you learned this material?</p>
+              <ScaleButtons
+                value={learning}
+                onChange={setLearning}
+                options={[
+                  { value: 1, label: 'Not at all' },
+                  { value: 2, label: 'A little' },
+                  { value: 3, label: 'Somewhat' },
+                  { value: 4, label: 'Well' },
+                  { value: 5, label: 'Very well' },
+                ]}
+              />
+            </div>
+
+            <div className="mt-6">
+              <p className="label">How difficult was this test?</p>
+              <ScaleButtons
+                value={difficulty}
+                onChange={setDifficulty}
+                options={[
+                  { value: 1, label: 'Easy' },
+                  { value: 2, label: 'Medium' },
+                  { value: 3, label: 'Hard' },
+                ]}
+              />
+            </div>
+          </section>
 
           {error && <p className="text-sm text-danger">{error}</p>}
         </div>
@@ -331,11 +380,15 @@ export default function AssessmentPage() {
       >
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <p className="text-xs text-muted">
-            {allAnswered ? 'All problems answered.' : `${items.length - answeredCount} left to answer.`}
+            {!allAnswered
+              ? `${items.length - answeredCount} problem${items.length - answeredCount === 1 ? '' : 's'} left to answer.`
+              : !selfReportComplete
+              ? 'Answer the wrap-up questions to finish.'
+              : 'Ready to submit.'}
           </p>
           <button
             onClick={() => submit()}
-            disabled={submitting || !allAnswered}
+            disabled={submitting || !canSubmit}
             className="btn btn-primary h-11 px-6 disabled:opacity-50"
           >
             {submitting ? 'Submitting…' : 'Submit'}
@@ -371,6 +424,33 @@ function Metric({ label, value }) {
     <div className="rounded-md border border-line p-4 text-center">
       <p className="eyebrow">{label}</p>
       <p className="mt-2 font-serif text-2xl text-ink tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+function ScaleButtons({ value, onChange, options }) {
+  return (
+    <div className="mt-2 grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((opt) => {
+        const selected = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`rounded-md border px-2 py-2.5 text-center transition-colors ${
+              selected
+                ? 'border-primary bg-primary text-white'
+                : 'border-line-strong bg-surface text-ink hover:border-primary'
+            }`}
+          >
+            <span className="block font-serif text-base tabular-nums">{opt.value}</span>
+            <span className={`block text-[11px] mt-0.5 ${selected ? 'text-white/80' : 'text-muted'}`}>
+              {opt.label}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }

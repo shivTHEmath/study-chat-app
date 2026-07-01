@@ -52,6 +52,19 @@ export async function POST(request) {
       )
     }
 
+    // Assessment gate: once an assessment is due, the student must complete it
+    // before continuing the conversation. Enforced server-side so it can't be
+    // bypassed by the client. The message is not processed or logged.
+    const assessmentGate = await isAssessmentDue(admin, user.id, {
+      next_assessment_due_at: participantCounters.next_assessment_due_at,
+    })
+    if (assessmentGate.due) {
+      return Response.json(
+        { assessmentRequired: true, assessmentAvailable: true },
+        { status: 409 }
+      )
+    }
+
     let phase = body.phase || 'follow_up'
 
     // 'auto' — the client has an active problem but doesn't know whether this
@@ -156,18 +169,9 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     tokensOut: usage?.output ?? null,
   })
 
-  // Starting a new problem is a natural "between problems" boundary: the previous
-  // problem is done. If an assessment has come due since last time, surface the
-  // banner now. Cheap check only — the 10 problems are generated when the student
-  // actually opens the assessment, so this doesn't slow the tutor response.
-  const { due: assessmentAvailable } = await isAssessmentDue(admin, userId, {
-    next_assessment_due_at: participantCounters.next_assessment_due_at,
-  })
-
   return Response.json({
     attemptId: attempt?.id || null,
     displayProblem,
-    assessmentAvailable,
     hintAllowed: false,
     nextHintAvailableAt: toFutureIso(initialHintDelaySeconds),
     clockState: {
@@ -338,15 +342,8 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   //   • increment problems_completed on the participant row
   //   • reset per-problem metacognitive_prompt_count is implicit (the next
   //     attempt will start a fresh row); we just bump the participant counter.
-  let assessmentAvailable = false
   if (parsed.isProblemComplete && attempt?.id) {
     await completeProblem(admin, userId, participantCounters.problems_completed, attempt.id)
-    // Finishing a problem is the ideal moment to surface a due assessment. Cheap
-    // check only; generation is deferred to when the student opens it.
-    const { due } = await isAssessmentDue(admin, userId, {
-      next_assessment_due_at: participantCounters.next_assessment_due_at,
-    })
-    assessmentAvailable = due
   }
 
   await logQuestion(admin, userId, {
@@ -363,7 +360,6 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     attemptId: attempt?.id || null,
     displayProblem,
     isProblemComplete: parsed.isProblemComplete,
-    assessmentAvailable,
     responseType: parsed.responseType,
     hintAllowed: hintState.hintAllowed,
     hintsExhausted: hintState.hintsExhausted,

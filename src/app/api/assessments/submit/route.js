@@ -3,7 +3,15 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { submitAssessment } from '@/lib/assessments'
 
 export async function POST(request) {
-  const { assessmentId, responses, allowPartial } = await request.json()
+  const body = await request.json().catch(() => null)
+  const {
+    assessmentId,
+    responses,
+    allowPartial,
+    selfEstimatedCorrect,
+    selfRatedLearning,
+    selfRatedDifficulty,
+  } = body || {}
   if (!assessmentId || !Array.isArray(responses)) {
     return Response.json({ error: 'Missing assessment responses.' }, { status: 400 })
   }
@@ -21,6 +29,7 @@ export async function POST(request) {
   const admin = createAdminClient()
   const result = await submitAssessment(admin, user.id, assessmentId, responses, {
     allowPartial: Boolean(allowPartial),
+    selfReport: { selfEstimatedCorrect, selfRatedLearning, selfRatedDifficulty },
   })
 
   if (result.error) {
@@ -29,7 +38,9 @@ export async function POST(request) {
 
   return Response.json({
     score: result.score,
-    meanConfidence: result.meanConfidence,
+    selfEstimatedScore: result.selfEstimatedScore,
+    selfRatedLearning: result.selfRatedLearning,
+    selfRatedDifficulty: result.selfRatedDifficulty,
     calibrationError: result.calibrationError,
     submittedLate: result.submittedLate,
     nextDueAt: result.nextDueAt,

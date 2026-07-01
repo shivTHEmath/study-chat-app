@@ -44,12 +44,6 @@ function safeJsonParse(text) {
   }
 }
 
-function clampConfidence(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return 0
-  return Math.max(0, Math.min(100, Math.round(n)))
-}
-
 function normalizeCorrectness(value) {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
@@ -140,10 +134,16 @@ function buildGenerationPrompt({ sourceQuestions, grade }) {
     asked_at: row.asked_at,
   }))
 
-  return `You are creating a short assessment for a math tutoring app.
+  return `You are writing a short math test for a student, in the style of a school exam.
 
 Student grade: ${grade || 'unknown'}.
-Assessment requirements:
+
+STYLE — write it like a real school test:
+- Default to short-answer questions: each one should have a single concrete answer — a number, an expression, a set of solutions, a coordinate, etc. ("Solve for x: ...", "Evaluate ...", "Factor ...", "Find the value of ...").
+- Do NOT write "explain", "describe", "why", or "justify" prompts, and do NOT ask the student to write out reasoning or proofs — UNLESS the student's prior questions below are themselves predominantly proof-based or explanation-based. Only then should the test match that style.
+- No multi-part questions. One ask per problem.
+
+CONTENT requirements:
 - Create exactly ${ASSESSMENT_ITEM_COUNT} problems.
 - Each problem must be solvable within the student's apparent current knowledge and difficulty level.
 - Prefer creative cross-topic transfer when safe. Use paraphrase next. Use number changes only as a last resort.
@@ -235,7 +235,10 @@ async function generateAssessmentItems({ sourceQuestions, grade }) {
 async function createPendingAssessment(admin, userId, participant, now = new Date()) {
   const sourceQuestions = await fetchSourceQuestions(admin, userId)
   if (sourceQuestions.length === 0) {
-    return { assessment: null, items: [], unavailableReason: 'no_source_questions' }
+    // Nothing to build a transfer test from yet — skip this cycle instead of
+    // leaving the student permanently "due" (which would block the chat).
+    const nextDueAt = await scheduleNextAssessment(admin, userId, now)
+    return { assessment: null, items: [], unavailableReason: 'no_source_questions', nextDueAt }
   }
 
   const generated = await generateAssessmentItems({
@@ -420,12 +423,18 @@ async function evaluateResponses({ items, responses }) {
   }
 }
 
+function clampInt(value, min, max) {
+  const n = Math.round(Number(value))
+  if (!Number.isFinite(n)) return null
+  return Math.max(min, Math.min(max, n))
+}
+
 async function submitAssessment(
   admin,
   userId,
   assessmentId,
   responses,
-  { allowPartial = false, now = new Date() } = {}
+  { allowPartial = false, selfReport = {}, now = new Date() } = {}
 ) {
   const { data: assessment } = await admin
     .from('assessments')
@@ -449,7 +458,6 @@ async function submitAssessment(
     return {
       itemId: item.id,
       answer: String(response?.answer || '').trim(),
-      confidence: clampConfidence(response?.confidence),
     }
   })
 
@@ -468,7 +476,6 @@ async function submitAssessment(
       item_id: response.itemId,
       user_id: userId,
       answer: response.answer,
-      confidence: response.confidence,
       correctness: result?.correctness ?? 0,
       evaluator_feedback: result?.feedback || '',
     }
@@ -481,15 +488,17 @@ async function submitAssessment(
   const score =
     responseRows.reduce((sum, row) => sum + Number(row.correctness || 0), 0) /
     ASSESSMENT_ITEM_COUNT
-  const meanConfidence =
-    responseRows.reduce((sum, row) => sum + Number(row.confidence || 0), 0) /
-    ASSESSMENT_ITEM_COUNT /
-    100
+
+  // Self-report: one overall self-estimated score (how many of the 10 they think
+  // they got), plus learning and difficulty ratings. Calibration is now the gap
+  // between what they predicted and what they actually scored.
+  const selfEstimatedCorrect = clampInt(selfReport.selfEstimatedCorrect, 0, ASSESSMENT_ITEM_COUNT)
+  const selfEstimatedScore =
+    selfEstimatedCorrect === null ? null : selfEstimatedCorrect / ASSESSMENT_ITEM_COUNT
+  const selfRatedLearning = clampInt(selfReport.selfRatedLearning, 1, 5)
+  const selfRatedDifficulty = clampInt(selfReport.selfRatedDifficulty, 1, 3)
   const calibrationError =
-    responseRows.reduce(
-      (sum, row) => sum + Math.abs(Number(row.confidence || 0) / 100 - Number(row.correctness || 0)),
-      0
-    ) / ASSESSMENT_ITEM_COUNT
+    selfEstimatedScore === null ? null : Math.abs(selfEstimatedScore - score)
 
   const nowIso = now.toISOString()
   const submittedLate = assessment.due_at
@@ -503,7 +512,9 @@ async function submitAssessment(
       completed_at: nowIso,
       submitted_late: submittedLate,
       score,
-      mean_confidence: meanConfidence,
+      self_estimated_score: selfEstimatedScore,
+      self_rated_learning: selfRatedLearning,
+      self_rated_difficulty: selfRatedDifficulty,
       calibration_error: calibrationError,
       updated_at: nowIso,
     })
@@ -516,7 +527,9 @@ async function submitAssessment(
   return {
     assessment: updated || assessment,
     score,
-    meanConfidence,
+    selfEstimatedScore,
+    selfRatedLearning,
+    selfRatedDifficulty,
     calibrationError,
     submittedLate,
     nextDueAt,
