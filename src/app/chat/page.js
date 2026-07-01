@@ -267,7 +267,11 @@ export default function ChatPage() {
               Pause session
             </button>
             <button
-              onClick={() => router.push('/login')}
+              onClick={async () => {
+                const supabase = createClient()
+                await supabase.auth.signOut()
+                router.replace('/login')
+              }}
               className="text-xs font-medium text-muted hover:text-ink transition-colors"
             >
               End session
