@@ -49,7 +49,7 @@ function InlineMarkdown({ text }) {
 // Splits a line into spans, <strong>, and <em> elements.
 // **bold** is matched before *italic* so ** is never confused with *.
 function parseBoldItalic(text, prefix) {
-  const INLINE = /\*\*(.+?)\*\*|\*([^*]+?)\*/g
+  const INLINE = /\*\*(.+?)\*\*|\*(\S[^*]*?\S|\S)\*/g
   const parts = []
   let last = 0
   let i = 0
