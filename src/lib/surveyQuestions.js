@@ -9,7 +9,7 @@ export const SURVEY_QUESTIONS = [
     id: 'grade',
     label: 'What grade are you currently in?',
     type: 'select',
-    options: ['7th grade', '8th grade'],
+    options: ['7th grade', '8th grade', '9th grade', '10th grade'],
   },
   {
     id: 'outside_tutoring',
