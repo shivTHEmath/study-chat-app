@@ -71,6 +71,12 @@ export async function proxy(request) {
       if (!consentDone) return redirect('/consent')
     }
 
+    // Signup and video require completed consent + survey — they are not freely public.
+    if (pathname === '/signup' || pathname.startsWith('/video')) {
+      if (!consentDone) return redirect('/consent')
+      if (!surveyDone) return redirect('/survey')
+    }
+
     // Any other protected route: route to login if onboarding is done, else start at consent.
     if (!isPublic && !isApi) {
       return consentDone && surveyDone ? redirect('/login') : redirect('/consent')
