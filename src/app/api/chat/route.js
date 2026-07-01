@@ -101,7 +101,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     conversation: [],
   })
 
-  const modelText = await askTutor(runtimeContext, body.studentMessage)
+  const { text: modelText, usage } = await askTutor(runtimeContext, body.studentMessage)
   const parsed = parseNewProblemResponse(modelText)
   const displayProblem = parsed?.displayProblem || body.problem
   const difficulty = clampDifficulty(parsed?.difficulty || 3)
@@ -132,6 +132,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     },
     runtime: {
       difficulty,
+      asValue: fadedCondition.as_value,
       initialHintDelaySeconds,
       midProblemDelaySeconds,
       hintCount: 0,
@@ -139,6 +140,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     message: {
       role: 'tutor',
       text: tutorMessage,
+      tokens: usage,
     },
   })
 }
@@ -216,9 +218,16 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     conversation: body.conversation,
   })
 
-  const modelText = await askTutor(runtimeContext, body.studentMessage)
+  const { text: modelText, usage } = await askTutor(runtimeContext, body.studentMessage)
   const parsed = parseFollowUpResponse(modelText)
-  const tutorMessage = parsed.message
+  let tutorMessage = parsed.message
+
+  // Guard: never surface an empty bubble. If parsing yielded nothing (e.g. a
+  // truncated or malformed response), log the raw text and fall back.
+  if (!tutorMessage || !tutorMessage.trim()) {
+    console.error('[api/chat] empty tutor message. raw model text:', JSON.stringify(modelText).slice(0, 500))
+    tutorMessage = 'Sorry — I lost my train of thought there. Could you say that again?'
+  }
 
   // ── Persist accurate counters based on model's self-reported flags ──────────
 
@@ -255,6 +264,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     clockState,
     runtime: {
       difficulty,
+      asValue: fadedCondition.as_value,
       initialHintDelaySeconds: hintState.initialHintDelaySeconds,
       midProblemDelaySeconds: hintState.midProblemDelaySeconds,
       hintCount: attempt?.hint_count || 0,
@@ -262,9 +272,19 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
       secondsSinceStarted: hintState.secondsSinceStarted,
       secondsUntilHint: hintState.secondsUntilHint,
     },
+    debug: {
+      attemptFound: Boolean(attempt),
+      conditionId: effectiveCondition.condition_id,
+      conditionSource: attempt ? 'attempt' : 'participant',
+      baseAS: effectiveCondition.as_value,
+      sfrValue: effectiveCondition.sfr_value,
+      fadeMultiplier,
+      engagedHours: cumulativeEngagedHours,
+    },
     message: {
       role: 'tutor',
       text: tutorMessage,
+      tokens: usage,
     },
   })
 }
@@ -272,8 +292,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 async function askTutor(runtimeContext, studentMessage) {
   const response = await anthropic.messages.create({
     model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-    max_tokens: 400,
-    temperature: 0.2,
+    max_tokens: 3000,
     system: TUTOR_SYSTEM_PROMPT,
     messages: [
       {
@@ -283,7 +302,13 @@ async function askTutor(runtimeContext, studentMessage) {
     ],
   })
 
-  return extractText(response)
+  return {
+    text: extractText(response),
+    usage: {
+      input: response.usage?.input_tokens ?? null,
+      output: response.usage?.output_tokens ?? null,
+    },
+  }
 }
 
 async function loadParticipantCondition(admin, userId) {

@@ -108,23 +108,33 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Preserve the exact mathematical meaning and use LaTeX delimiters for all math.',
       'Estimate the difficulty from 1 to 5.',
       'THIS IS THE PRODUCTIVE FAILURE PERIOD.',
-      'Do NOT give any hints, guidance, strategies, or starting points.',
-      'Your message should be brief (2–3 sentences), warm, and send the student off to struggle with the problem on their own.',
-      'Encourage genuine independent effort — something in the spirit of:',
-      '"Give this a real try on your own. Come back with your findings once you\'ve worked through it and we\'ll dig in together."',
-      'Do not suggest any approach or mathematical concept.',
-      'Return ONLY valid JSON in this exact shape (no prose, no markdown, no extra keys):',
-      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response"}',
+      'Do NOT give any hints, guidance, strategies, starting points, or directions of ANY kind.',
+      'This is the strictest rule of this turn: your message must contain ZERO mathematical direction.',
+      'Forbidden — do not say any of these or anything like them: "test small values", "look for a pattern", "try a few cases", "start by...", "think about...", "consider...", "notice...", naming any technique, concept, operation, or the variable structure.',
+      'If your message would help the student even slightly decide HOW to begin, it is wrong. Remove it.',
+      'Your message must be brief (1–2 sentences), warm, and purely a send-off to work independently — nothing more.',
+      'Good (zero direction): "Nice problem! Give it a real try on your own first, then come back with what you find and we\'ll dig in together."',
+      'Bad (contains direction): "Give it a try — test small values and see what patterns emerge." (this names a strategy — forbidden)',
+      LABEL_NOTE,
+      'Return only valid JSON in this exact shape:',
+      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response\\n\\n[Productive Failure]"}.',
     ].join(' ')
   }
+
+  // All follow-up turns return JSON so the route can reliably read flags.
+  const jsonNote = `${LABEL_NOTE} Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
+
+  // Standalone Socratic questioning is disabled. The hint system now carries
+  // the gentle, question-shaped guidance role; outside an allowed hint the
+  // tutor only acknowledges and encourages.
+  const NO_SOCRATIC = 'Do NOT ask any Socratic questions this turn. Do not ask the student what they have tried, where they are stuck, or any open-ended process question.'
 
   if (hintRequestedButDelayed) {
     return [
       'The student has asked for a hint, but they need to keep working independently right now.',
       'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
-      'Instead, respond with a genuine Socratic question that encourages deeper thinking.',
-      'Ask what they have tried so far, what they notice about the problem, what concept might apply, or where they feel stuck.',
-      'Keep it short and curious — your goal is to get them thinking, not to lead them.',
+      'Respond with a brief, warm message telling them to keep working.',
+      NO_SOCRATIC,
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
@@ -136,8 +146,9 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     return [
       'All hints for this problem have been given (80% solution cap reached).',
       'Do NOT provide any further hints.',
-      'Continue with Socratic guidance only.',
+      'Respond with brief, warm encouragement only.',
       'If the student has now arrived at the correct answer, set isProblemComplete to true.',
+      NO_SOCRATIC,
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
@@ -152,6 +163,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Use LaTeX delimiters for all math.',
       'Do not give the final answer or full solution. Set hintGiven to true.',
       'If this hint leads the student to the correct answer, set isProblemComplete to true.',
+      NO_SOCRATIC,
       metacognitivePromptDue
         ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
         : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
@@ -161,8 +173,9 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
 
   return [
     'Respond to the student. Do not provide a concrete hint or final answer.',
-    'Use Socratic guidance to help the student make progress independently.',
+    'Acknowledge their message and encourage continued effort.',
     'If the student has now arrived at the correct answer, set isProblemComplete to true.',
+    NO_SOCRATIC,
     metacognitivePromptDue
       ? 'A metacognitive reflection prompt is due this turn — weave one in naturally and set metacognitivePromptIncluded to true.'
       : 'Do NOT include a metacognitive prompt this turn. Set metacognitivePromptIncluded to false.',
