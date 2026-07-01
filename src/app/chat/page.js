@@ -6,6 +6,10 @@ import MathText from '@/components/MathText'
 import { shouldTriggerCheckin, checkinMessageFor } from '@/lib/tutor/engagementClock'
 import { createClient } from '@/lib/supabase/client'
 
+function nowMs() {
+  return Date.now()
+}
+
 export default function ChatPage() {
   const router = useRouter()
   const [problem, setProblem] = useState('')
@@ -23,10 +27,11 @@ export default function ChatPage() {
   const [showIdleWarning, setShowIdleWarning] = useState(false)
   const [idleCountdown, setIdleCountdown] = useState(30)
   const [pendingIntent, setPendingIntent] = useState(null)  // { text } when intent is ambiguous
+  const [assessmentAvailable, setAssessmentAvailable] = useState(false)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
-  const lastInteractionRef = useRef(Date.now())
+  const lastInteractionRef = useRef(nowMs())
   const pausedRef = useRef(false)
 
   // Client-side auth guard — fallback in case middleware is bypassed.
@@ -39,6 +44,24 @@ export default function ChatPage() {
     })
   }, [router])
 
+  // If an assessment became due in a previous session, show it when the
+  // student returns and is between problems.
+  useEffect(() => {
+    async function loadAssessmentStatus() {
+      try {
+        const res = await fetch('/api/assessments/status')
+        const data = await res.json()
+        if (res.ok && data.assessmentAvailable && !data.blockedByActiveProblem) {
+          setAssessmentAvailable(true)
+        }
+      } catch {
+        // Best effort only; chat should still load if status polling fails.
+      }
+    }
+
+    loadAssessmentStatus()
+  }, [])
+
   // Idle auto-logout — signs the student out after 30 minutes with no prompt
   // sent to the tutor, unless the session is paused. The timer resets only when
   // the student sends a message; mouse/keyboard activity does not count.
@@ -48,7 +71,7 @@ export default function ChatPage() {
     const WARN_AT_MS = IDLE_LOGOUT_MS - 30 * 1000
     const id = setInterval(async () => {
       if (pausedRef.current) return
-      const elapsed = Date.now() - lastInteractionRef.current
+      const elapsed = nowMs() - lastInteractionRef.current
       if (elapsed >= IDLE_LOGOUT_MS) {
         clearInterval(id)
         setShowIdleWarning(false)
@@ -80,12 +103,12 @@ export default function ChatPage() {
   }
 
   function confirmStillHere() {
-    lastInteractionRef.current = Date.now()
+    lastInteractionRef.current = nowMs()
     setShowIdleWarning(false)
   }
 
   async function resumeSession() {
-    lastInteractionRef.current = Date.now()
+    lastInteractionRef.current = nowMs()
     setPaused(false)
     try {
       await fetch('/api/session/pause', {
@@ -145,7 +168,7 @@ export default function ChatPage() {
     setError('')
     setInput('')
     setProblemOpen(true)
-    lastInteractionRef.current = Date.now()
+    lastInteractionRef.current = nowMs()
     requestAnimationFrame(autoGrow)
   }
 
@@ -153,7 +176,7 @@ export default function ChatPage() {
     const text = input.trim()
     if (!text || sending) return
 
-    lastInteractionRef.current = Date.now()  // reset idle-logout window
+    lastInteractionRef.current = nowMs()  // reset idle-logout window
     setShowIdleWarning(false)
     setPendingIntent(null)
     setError('')
@@ -275,6 +298,10 @@ export default function ChatPage() {
         setMessages((m) => [...m, data.message])
       }
 
+      if (data.assessmentAvailable) {
+        setAssessmentAvailable(true)
+      }
+
       // TESTING: capture runtime state for debug panel
       setDebugState({
         difficulty: data.runtime?.difficulty ?? '—',
@@ -365,6 +392,26 @@ export default function ChatPage() {
             </p>
             <button onClick={resumeSession} className="btn btn-primary w-full h-11">
               Resume session
+            </button>
+          </div>
+        </div>
+      )}
+
+      {assessmentAvailable && !paused && (
+        <div className="shrink-0 border-b border-line bg-surface">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="eyebrow">Assessment ready</p>
+              <p className="mt-1 text-sm text-muted">
+                Complete a 10-problem, 30-minute assessment before continuing.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/assessment')}
+              className="btn btn-primary h-10 px-4 text-sm"
+            >
+              Start assessment
             </button>
           </div>
         </div>

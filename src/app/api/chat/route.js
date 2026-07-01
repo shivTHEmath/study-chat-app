@@ -10,6 +10,7 @@ import {
 } from '@/lib/tutor/runtime'
 import { metacognitiveTargetForProblem } from '@/lib/tutor/metacognitivePrompting'
 import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
+import { maybeCreateDueAssessment } from '@/lib/assessments'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -328,8 +329,15 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   //   • increment problems_completed on the participant row
   //   • reset per-problem metacognitive_prompt_count is implicit (the next
   //     attempt will start a fresh row); we just bump the participant counter.
+  let assessmentAvailable = false
   if (parsed.isProblemComplete && attempt?.id) {
-    await completeProblem(admin, userId, participantCounters.problems_completed)
+    await completeProblem(admin, userId, participantCounters.problems_completed, attempt.id)
+    const assessmentResult = await maybeCreateDueAssessment(admin, userId, {
+      ...participantCounters,
+      grade,
+      problems_completed: Number(participantCounters.problems_completed || 0) + 1,
+    })
+    assessmentAvailable = Boolean(assessmentResult.assessment)
   }
 
   await logQuestion(admin, userId, {
@@ -346,6 +354,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     attemptId: attempt?.id || null,
     displayProblem,
     isProblemComplete: parsed.isProblemComplete,
+    assessmentAvailable,
     responseType: parsed.responseType,
     hintAllowed: hintState.hintAllowed,
     hintsExhausted: hintState.hintsExhausted,
@@ -492,7 +501,8 @@ async function loadParticipantCounters(admin, userId) {
     .from('participants')
     .select(
       'total_metacognitive_prompts_given, problems_completed, ' +
-      'cumulative_engaged_seconds, last_activity_at, clock_paused_at, pending_checkin_type'
+      'cumulative_engaged_seconds, last_activity_at, clock_paused_at, pending_checkin_type, ' +
+      'next_assessment_due_at'
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -508,6 +518,7 @@ async function loadParticipantCounters(admin, userId) {
     last_activity_at: data?.last_activity_at ?? null,
     clock_paused_at: data?.clock_paused_at ?? null,
     pending_checkin_type: data?.pending_checkin_type ?? null,
+    next_assessment_due_at: data?.next_assessment_due_at ?? null,
   }
 }
 
@@ -694,9 +705,10 @@ async function incrementMcpCount(admin, attemptId, userId) {
 }
 
 // Marks the current problem as solved: increments problems_completed on the
-// participant row. The attempt itself is left open (no is_complete column
-// needed) — the next new_problem call starts a fresh attempt row.
-async function completeProblem(admin, userId, currentProblemsCompleted) {
+// participant row and closes the current attempt so assessments can appear
+// only between problems.
+async function completeProblem(admin, userId, currentProblemsCompleted, attemptId) {
+  const nowIso = new Date().toISOString()
   const { error } = await admin
     .from('participants')
     .update({ problems_completed: Number(currentProblemsCompleted || 0) + 1 })
@@ -704,6 +716,16 @@ async function completeProblem(admin, userId, currentProblemsCompleted) {
 
   if (error) {
     console.error('[api/chat] completeProblem update failed:', error.message)
+  }
+
+  const { error: attemptError } = await admin
+    .from('problem_attempts')
+    .update({ completed_at: nowIso, updated_at: nowIso })
+    .eq('id', attemptId)
+    .eq('user_id', userId)
+
+  if (attemptError) {
+    console.error('[api/chat] problem attempt completion update failed:', attemptError.message)
   }
 }
 

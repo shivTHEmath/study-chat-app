@@ -20,7 +20,7 @@ export const content = {
       },
       {
         title: 'Procedure',
-        body: 'At the beginning of the study, students will complete a survey measuring existing knowledge and access to help, taking about ten minutes. Over the following three weeks, participants will interact with an AI tutoring system for at least ten hours total, for assistance with, learning, or revising mathematics topics. At the end of some sessions, students may be given assessments of about twenty minutes to measure the effects on independent reasoning. Your child will receive one version of the tutoring tool based on a randomized process. About 100 students total will take part in the study.',
+        body: 'At the beginning of the study, students will complete a survey measuring existing knowledge and access to help, taking about ten minutes. Over the following three weeks, participants will interact with an AI tutoring system for at least ten hours total, for assistance with, learning, or revising mathematics topics. At the end of some sessions, students may be given 10-problem assessments of up to 30 minutes to measure the effects on independent reasoning. Your child will receive one version of the tutoring tool based on a randomized process. About 100 students total will take part in the study.',
       },
       {
         title: 'Risks',
