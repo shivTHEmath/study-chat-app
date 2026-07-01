@@ -2,20 +2,21 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 const SCROLL_THRESHOLD = 0.95 // must scroll to 95% of content height to unlock submit
 const SESSION_KEY = 'study_session_id'
 
 // Generates (or reuses) a temporary id that ties together consent -> survey -> signup,
-// before any real account exists. Stored in sessionStorage only (cleared if the
-// browser tab closes before signup completes, which is the safe default for a minor's
-// pre-account flow).
+// before any real account exists. Uses localStorage so the id survives tab/browser
+// restarts — the session_id → user_id link in /api/signup still works if the student
+// takes a break between completing consent and finishing signup.
 function getOrCreateSessionId() {
   if (typeof window === 'undefined') return null
-  let id = sessionStorage.getItem(SESSION_KEY)
+  let id = localStorage.getItem(SESSION_KEY)
   if (!id) {
     id = crypto.randomUUID()
-    sessionStorage.setItem(SESSION_KEY, id)
+    localStorage.setItem(SESSION_KEY, id)
   }
   return id
 }
@@ -116,12 +117,20 @@ export default function ConsentPage() {
     <div className="h-[100dvh] flex flex-col bg-paper">
       {/* Sticky header */}
       <header className="shrink-0 px-4 py-3.5 border-b border-line bg-surface">
-        <div className="max-w-2xl mx-auto">
-          <p className="eyebrow">Step 1 of 3 · Informed consent</p>
-          <h1 className="font-serif text-lg text-ink mt-1">
-            Parent consent &amp; student assent
-          </h1>
-          <p className="text-xs text-muted mt-0.5">Please scroll to read the full form.</p>
+        <div className="max-w-2xl mx-auto flex items-start justify-between gap-4">
+          <div>
+            <p className="eyebrow">Step 1 of 3 · Informed consent</p>
+            <h1 className="font-serif text-lg text-ink mt-1">
+              Parent consent &amp; student assent
+            </h1>
+            <p className="text-xs text-muted mt-0.5">Please scroll to read the full form.</p>
+          </div>
+          <Link
+            href="/login"
+            className="text-xs text-primary underline underline-offset-2 shrink-0 pt-0.5"
+          >
+            Returning participant? Log in
+          </Link>
         </div>
       </header>
 

@@ -23,7 +23,7 @@ export default function SignupPage() {
     setLoading(true)
 
     try {
-      const sessionId = sessionStorage.getItem(SESSION_KEY)
+      const sessionId = localStorage.getItem(SESSION_KEY)
 
       // Single API call: validates invite code, creates auth user, claims condition slot atomically
       const registerRes = await fetch('/api/signup', {

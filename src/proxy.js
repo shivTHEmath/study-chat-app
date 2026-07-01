@@ -28,29 +28,53 @@ export async function proxy(request) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const publicRoutes = [
-    '/consent',
-    '/consent/declined',
-    '/survey',
-    '/video',
-    '/signup',
-    '/login',
-  ]
-  const isPublic = publicRoutes.some((r) => pathname === r || pathname.startsWith(r + '/'))
   const isApi = pathname.startsWith('/api')
+  const publicRoutes = ['/consent', '/consent/declined', '/survey', '/video', '/signup', '/login']
+  const isPublic = publicRoutes.some((r) => pathname === r || pathname.startsWith(r + '/'))
 
-  if (!user && !isPublic && !isApi) {
+  // Helper to build a redirect response.
+  const redirect = (dest) => {
     const url = request.nextUrl.clone()
-    url.pathname = '/consent'
+    url.pathname = dest
     return NextResponse.redirect(url)
   }
 
-  // Authenticated users don't need the auth/onboarding pages.
-  const authOnlyRoutes = ['/', '/login', '/signup']
-  if (user && authOnlyRoutes.includes(pathname)) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/chat'
-    return NextResponse.redirect(url)
+  // Logged-in users skip all auth/onboarding screens entirely.
+  if (user) {
+    const bypassPaths = ['/', '/login', '/signup', '/consent', '/survey']
+    if (bypassPaths.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
+      return redirect('/chat')
+    }
+  }
+
+  // Unauthenticated routing driven by onboarding completion cookies.
+  if (!user) {
+    const consentDone = request.cookies.get('consent_done')?.value === '1'
+    const surveyDone = request.cookies.get('survey_done')?.value === '1'
+
+    // Root: send to the right step.
+    if (pathname === '/') {
+      if (consentDone && surveyDone) return redirect('/login')
+      if (consentDone) return redirect('/survey')
+      return redirect('/consent')
+    }
+
+    // Consent page: skip forward if already completed.
+    if (pathname === '/consent') {
+      if (consentDone && surveyDone) return redirect('/login')
+      if (consentDone) return redirect('/survey')
+    }
+
+    // Survey page: requires consent first; skip forward if both done.
+    if (pathname === '/survey') {
+      if (consentDone && surveyDone) return redirect('/login')
+      if (!consentDone) return redirect('/consent')
+    }
+
+    // Any other protected route: route to login if onboarding is done, else start at consent.
+    if (!isPublic && !isApi) {
+      return consentDone && surveyDone ? redirect('/login') : redirect('/consent')
+    }
   }
 
   return supabaseResponse

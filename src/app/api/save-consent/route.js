@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request) {
@@ -31,8 +32,15 @@ export async function POST(request) {
   })
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return Response.json({ ok: true })
+  const res = NextResponse.json({ ok: true })
+  res.cookies.set('consent_done', '1', {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 31536000,
+  })
+  return res
 }
