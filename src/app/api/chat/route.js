@@ -51,13 +51,41 @@ export async function POST(request) {
       )
     }
 
-    const phase = body.phase || 'follow_up'
+    let phase = body.phase || 'follow_up'
 
-    if (phase === 'new_problem') {
-      return await handleNewProblem({ admin, body, condition, grade, participantCounters, userId: user.id })
+    // 'auto' — the client has an active problem but doesn't know whether this
+    // message is a new problem or a follow-up. Classify it; if we're not
+    // confident (>80%), bounce back and let the UI ask the student.
+    if (phase === 'auto') {
+      const { intent, confidence } = await classifyIntent(
+        body.problem,
+        body.conversation,
+        body.studentMessage
+      )
+      if (confidence < 0.8) {
+        return Response.json({
+          needsIntentConfirmation: true,
+          intentGuess: intent,
+          intentConfidence: confidence,
+        })
+      }
+      if (intent === 'new_problem') {
+        // The student's message IS the new problem — override body.problem so
+        // the new-problem handler treats it as the problem text, not the old one.
+        return await handleNewProblem({
+          admin,
+          body: { ...body, problem: body.studentMessage },
+          condition, grade, participantCounters, userId: user.id, intent: 'new_problem',
+        })
+      }
+      return await handleFollowUp({ admin, body, condition, grade, participantCounters, userId: user.id, intent: 'follow_up' })
     }
 
-    return await handleFollowUp({ admin, body, condition, grade, participantCounters, userId: user.id })
+    if (phase === 'new_problem') {
+      return await handleNewProblem({ admin, body, condition, grade, participantCounters, userId: user.id, intent: 'new_problem' })
+    }
+
+    return await handleFollowUp({ admin, body, condition, grade, participantCounters, userId: user.id, intent: 'follow_up' })
   } catch (err) {
     console.error('[api/chat] failed:', err)
     return Response.json(
@@ -67,7 +95,7 @@ export async function POST(request) {
   }
 }
 
-async function handleNewProblem({ admin, body, condition, grade, participantCounters, userId }) {
+async function handleNewProblem({ admin, body, condition, grade, participantCounters, userId, intent }) {
   const { deltaSeconds, updates: clockUpdates } = resolveEngagementTick(
     {
       ...participantCounters,
@@ -137,6 +165,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
       midProblemDelaySeconds,
       hintCount: 0,
     },
+    intent: intent ?? 'new_problem',
     message: {
       role: 'tutor',
       text: tutorMessage,
@@ -145,7 +174,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
   })
 }
 
-async function handleFollowUp({ admin, body, condition, grade, participantCounters, userId }) {
+async function handleFollowUp({ admin, body, condition, grade, participantCounters, userId, intent }) {
   // Tick the engagement clock on every student message, including hint-wait
   // short-circuits below — the student DID send a message either way.
   const { deltaSeconds, updates: clockUpdates } = resolveEngagementTick(
@@ -187,17 +216,25 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   const requestedHintTime = isHintTimeRequest(body.studentMessage)
 
   // Hint was asked for (or timing asked about) but the access delay hasn't elapsed yet.
-  // Instead of blocking, route to the AI with a flag to give a Socratic/metacognitive
-  // response — no mention of time or delays.
+  // Instead of blocking, route to the AI with a flag to give brief encouragement
+  // to keep working — no hint, no open question, no mention of time or delays.
   const hintRequestedButDelayed =
     (requestedHint || requestedHintTime) && !hintState.hintAllowed
 
-  const metacognitivePromptDue = shouldFireMetacognitivePrompt({
-    mcpValue: effectiveCondition.mcp_value, // mcp_value unfaded — intentional
-    promptsOnCurrentProblem: attempt?.metacognitive_prompt_count || 0,
-    totalPromptsGiven: participantCounters.total_metacognitive_prompts_given,
-    problemsCompleted: participantCounters.problems_completed,
-  })
+  // Is a previous metacognitive prompt still awaiting an answer this turn?
+  const mcpAwaitingAnswer = Boolean(attempt?.mcp_awaiting_answer)
+  const mcpReaskCount = Number(attempt?.mcp_reask_count || 0)
+
+  // Don't fire a NEW metacognitive prompt while we're still waiting on the last
+  // one — that would stack prompts. Resolve the outstanding one first.
+  const metacognitivePromptDue = mcpAwaitingAnswer
+    ? false
+    : shouldFireMetacognitivePrompt({
+        mcpValue: effectiveCondition.mcp_value, // mcp_value unfaded — intentional
+        promptsOnCurrentProblem: attempt?.metacognitive_prompt_count || 0,
+        totalPromptsGiven: participantCounters.total_metacognitive_prompts_given,
+        problemsCompleted: participantCounters.problems_completed,
+      })
 
   const runtimeContext = buildRuntimeContext({
     condition: fadedCondition,
@@ -215,6 +252,8 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     maxHints: hintState.maxHints,
     hintsExhausted: hintState.hintsExhausted,
     metacognitivePromptDue,
+    mcpAwaitingAnswer,
+    mcpReaskCount,
     conversation: body.conversation,
   })
 
@@ -241,6 +280,34 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   if (attempt?.id && metacognitivePromptDue) {
     await incrementMcpCount(admin, attempt.id, userId)
   }
+
+  // ── Metacognitive-prompt answer tracking ────────────────────────────────────
+  let resultAwaiting = mcpAwaitingAnswer
+  let resultReask = mcpReaskCount
+  if (attempt?.id) {
+    if (mcpAwaitingAnswer) {
+      // We were waiting for the student to answer a previous MCP.
+      if (parsed.mcpAnswered || parsed.mcpDropped) {
+        // Answered, or we backed off — stop waiting and reset the counter.
+        resultAwaiting = false
+        resultReask = 0
+      } else {
+        // Still unanswered — re-asked this turn. After 3 attempts, give up.
+        resultReask = mcpReaskCount + 1
+        resultAwaiting = resultReask < 3
+      }
+      await updateMcpAwaitState(admin, attempt.id, resultAwaiting, resultReask)
+    } else if (metacognitivePromptDue) {
+      // A fresh MCP was delivered this turn — start awaiting its answer.
+      resultAwaiting = true
+      resultReask = 0
+      await updateMcpAwaitState(admin, attempt.id, true, 0)
+    }
+  }
+
+  // Current MCP counts (including this turn's increment, if any) for the debug panel.
+  const mcpCountNow = (Number(attempt?.metacognitive_prompt_count || 0)) + (metacognitivePromptDue ? 1 : 0)
+  const mcpTotalNow = Number(participantCounters.total_metacognitive_prompts_given || 0) + (metacognitivePromptDue ? 1 : 0)
 
   // ── Problem completion ───────────────────────────────────────────────────────
   // When the model signals the student has arrived at the correct answer:
@@ -280,13 +347,67 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
       sfrValue: effectiveCondition.sfr_value,
       fadeMultiplier,
       engagedHours: cumulativeEngagedHours,
+      mcpCount: mcpCountNow,
+      mcpTotal: mcpTotalNow,
+      mcpAwaiting: resultAwaiting,
+      mcpReask: resultReask,
     },
+    intent: intent ?? 'follow_up',
     message: {
       role: 'tutor',
       text: tutorMessage,
       tokens: usage,
     },
   })
+}
+
+// Classifies whether an incoming message starts a NEW problem or is a FOLLOW-UP
+// to the active one. Uses a fast, cheap model. Returns { intent, confidence }.
+// On any failure, returns confidence 0 so the UI asks the student to choose.
+const CLASSIFIER_MODEL = process.env.ANTHROPIC_CLASSIFIER_MODEL || 'claude-haiku-4-5-20251001'
+
+async function classifyIntent(currentProblem, conversation, studentMessage) {
+  try {
+    const convText = Array.isArray(conversation)
+      ? conversation
+          .slice(-6)
+          .map((m) => `${m.role === 'user' ? 'Student' : 'Tutor'}: ${String(m.text || '').trim()}`)
+          .join('\n')
+      : ''
+
+    const prompt = [
+      'You classify a single student message in a math tutoring chat.',
+      'Decide which of these it is:',
+      '- "new_problem": the student is introducing a NEW math problem or question to start working on, distinct from the current one.',
+      '- "follow_up": the message concerns the CURRENT problem — an answer attempt, a question about it, a request for a hint, a clarification, or general chat about it.',
+      '',
+      `Current problem: ${currentProblem || '(none)'}`,
+      convText ? `Recent conversation:\n${convText}` : '',
+      `New student message: ${studentMessage}`,
+      '',
+      'Output ONLY compact JSON: {"intent":"new_problem"|"follow_up","confidence":0.0-1.0}',
+      'confidence = how certain you are of the chosen intent (1.0 = fully certain).',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    const resp = await anthropic.messages.create({
+      model: CLASSIFIER_MODEL,
+      max_tokens: 60,
+      system: 'You are a precise intent classifier. Output only the requested JSON, nothing else.',
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const parsed = tryParseJson(stripCodeFence(extractText(resp))) || {}
+    const intent = parsed.intent === 'new_problem' ? 'new_problem' : 'follow_up'
+    let confidence = Number(parsed.confidence)
+    if (!Number.isFinite(confidence)) confidence = 0
+    confidence = Math.max(0, Math.min(1, confidence))
+    return { intent, confidence }
+  } catch (err) {
+    console.error('[api/chat] intent classification failed:', err)
+    return { intent: 'follow_up', confidence: 0 }
+  }
 }
 
 async function askTutor(runtimeContext, studentMessage) {
@@ -487,6 +608,23 @@ async function incrementHintCount(admin, attemptId) {
   }
 }
 
+// Persists whether the attempt is awaiting an answer to a metacognitive prompt,
+// and how many times it has been re-asked.
+async function updateMcpAwaitState(admin, attemptId, awaiting, reaskCount) {
+  const { error } = await admin
+    .from('problem_attempts')
+    .update({
+      mcp_awaiting_answer: Boolean(awaiting),
+      mcp_reask_count: Number(reaskCount || 0),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', attemptId)
+
+  if (error) {
+    console.error('[api/chat] mcp await-state update failed:', error.message)
+  }
+}
+
 // Increments metacognitive_prompt_count on the attempt AND
 // total_metacognitive_prompts_given on the participant row.
 async function incrementMcpCount(admin, attemptId, userId) {
@@ -567,7 +705,7 @@ function extractText(response) {
 
 // Parses the follow-up response format:
 //   <prose message on one or more lines>
-//   {"isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false,"responseType":"Socratic"}
+//   {"isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false,"responseType":"Hint"}
 //
 // Scans backwards for the last line that is a valid JSON object containing
 // isProblemComplete. The message is everything before that line.
@@ -590,6 +728,8 @@ function parseFollowUpResponse(text) {
           hintGiven: Boolean(flags.hintGiven),
           metacognitivePromptIncluded: Boolean(flags.metacognitivePromptIncluded),
           responseType: typeof flags.responseType === 'string' ? flags.responseType : null,
+          mcpAnswered: Boolean(flags.mcpAnswered),
+          mcpDropped: Boolean(flags.mcpDropped),
         }
       }
     } catch {}
@@ -607,11 +747,13 @@ function parseFollowUpResponse(text) {
       hintGiven: Boolean(parsed.hintGiven),
       metacognitivePromptIncluded: Boolean(parsed.metacognitivePromptIncluded),
       responseType: null,
+      mcpAnswered: Boolean(parsed.mcpAnswered),
+      mcpDropped: Boolean(parsed.mcpDropped),
     }
   }
 
   // Final fallback: use raw text as-is
-  return { message: raw, isProblemComplete: false, hintGiven: false, metacognitivePromptIncluded: false, responseType: null }
+  return { message: raw, isProblemComplete: false, hintGiven: false, metacognitivePromptIncluded: false, responseType: null, mcpAnswered: false, mcpDropped: false }
 }
 
 function parseNewProblemResponse(text) {

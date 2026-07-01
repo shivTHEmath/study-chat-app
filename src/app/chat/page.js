@@ -22,6 +22,7 @@ export default function ChatPage() {
   const [paused, setPaused] = useState(false)
   const [showIdleWarning, setShowIdleWarning] = useState(false)
   const [idleCountdown, setIdleCountdown] = useState(30)
+  const [pendingIntent, setPendingIntent] = useState(null)  // { text } when intent is ambiguous
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
@@ -130,12 +131,31 @@ export default function ChatPage() {
     el.style.height = Math.min(el.scrollHeight, 140) + 'px'
   }, [])
 
+  // Resets everything so the NEXT message the student sends is treated as a
+  // brand-new problem: clears the conversation, the sticky problem, the current
+  // attempt, and the per-problem stats. send() routes to new_problem whenever
+  // `problem` is empty, so clearing it here is what starts the new problem.
+  function startNewProblem() {
+    if (sending) return
+    setProblem('')
+    setProblemPending(false)
+    setMessages([])
+    setAttemptId(null)
+    setDebugState(null)
+    setError('')
+    setInput('')
+    setProblemOpen(true)
+    lastInteractionRef.current = Date.now()
+    requestAnimationFrame(autoGrow)
+  }
+
   async function send() {
     const text = input.trim()
     if (!text || sending) return
 
     lastInteractionRef.current = Date.now()  // reset idle-logout window
     setShowIdleWarning(false)
+    setPendingIntent(null)
     setError('')
     setSending(true)
     if (!problem) {
@@ -151,6 +171,9 @@ export default function ChatPage() {
         nextMessages: [],
       })
     } else {
+      // A problem is active — the server auto-detects whether this is a new
+      // problem or a follow-up. We optimistically show the message; if it turns
+      // out to be a new problem, requestTutorMessage clears the thread.
       const nextMessages = [...messages, { role: 'user', text }]
       setMessages(nextMessages)
       setInput('')
@@ -159,12 +182,36 @@ export default function ChatPage() {
       await requestTutorMessage({
         problemText: problem,
         studentMessage: text,
-        phase: 'follow_up',
+        phase: 'auto',
         nextMessages,
       })
     }
 
     setSending(false)
+  }
+
+  // Resolves an ambiguous message after the student picks from the confirmation
+  // prompt. 'new_problem' restarts fresh; 'follow_up' continues the thread.
+  function confirmIntent(choice) {
+    const p = pendingIntent
+    if (!p) return
+    setPendingIntent(null)
+    setSending(true)
+    if (choice === 'new_problem') {
+      requestTutorMessage({
+        problemText: p.text,
+        studentMessage: p.text,
+        phase: 'new_problem',
+        nextMessages: [],
+      }).finally(() => setSending(false))
+    } else {
+      requestTutorMessage({
+        problemText: problem,
+        studentMessage: p.text,
+        phase: 'follow_up',
+        nextMessages: messages,
+      }).finally(() => setSending(false))
+    }
   }
 
   async function requestTutorMessage({
@@ -194,7 +241,22 @@ export default function ChatPage() {
         throw new Error(data?.error || 'The tutor could not respond. Please try again.')
       }
 
-      if (phase === 'new_problem' && data.displayProblem) {
+      // Classifier wasn't confident — ask the student to choose.
+      if (data.needsIntentConfirmation) {
+        setPendingIntent({ text: studentMessage, guess: data.intentGuess })
+        return
+      }
+
+      // Resolve whether this turn ended up being a new problem (either explicitly
+      // requested, or auto-detected). If so, reset the thread and stats — the
+      // optimistically-shown user message was actually a new problem, not a reply.
+      const resolvedNewProblem =
+        phase === 'new_problem' || (phase === 'auto' && data.intent === 'new_problem')
+
+      if (resolvedNewProblem && data.displayProblem) {
+        setMessages([])
+        setAttemptId(null)
+        setDebugState(null)
         setProblem(data.displayProblem)
         setProblemPending(false)
       }
@@ -235,6 +297,10 @@ export default function ChatPage() {
         sfrValue: data.debug?.sfrValue ?? null,
         fadeMultiplier: data.debug?.fadeMultiplier ?? null,
         engagedHours: data.debug?.engagedHours ?? null,
+        mcpCount: data.debug?.mcpCount ?? null,
+        mcpTotal: data.debug?.mcpTotal ?? null,
+        mcpAwaiting: data.debug?.mcpAwaiting ?? false,
+        mcpReask: data.debug?.mcpReask ?? 0,
       })
     } catch (err) {
       setError(err.message || 'The tutor could not respond. Please try again.')
@@ -260,6 +326,13 @@ export default function ChatPage() {
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center justify-between">
           <span className="font-serif text-sm text-ink">AI Tutoring Study</span>
           <div className="flex items-center gap-4">
+            <button
+              onClick={startNewProblem}
+              disabled={sending || (!problem && messages.length === 0)}
+              className="text-xs font-medium text-primary hover:text-primary/80 transition-colors disabled:text-faint disabled:cursor-not-allowed"
+            >
+              New problem
+            </button>
             <button
               onClick={pauseSession}
               className="text-xs font-medium text-muted hover:text-ink transition-colors"
@@ -367,6 +440,29 @@ export default function ChatPage() {
             <Message key={i} role={m.role} text={m.text} tokens={m.tokens} />
           ))}
           {sending && <TypingIndicator />}
+          {pendingIntent && !sending && (
+            <div className="flex justify-center">
+              <div className="card max-w-sm px-4 py-3.5 text-center">
+                <p className="text-sm text-ink mb-3">
+                  Is this a new problem, or a follow-up to the current one?
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={() => confirmIntent('new_problem')}
+                    className="btn btn-primary text-xs px-3.5 py-1.5"
+                  >
+                    New problem
+                  </button>
+                  <button
+                    onClick={() => confirmIntent('follow_up')}
+                    className="btn text-xs px-3.5 py-1.5 border border-line text-ink hover:bg-paper"
+                  >
+                    Follow-up
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {error && (
             <div className="rounded-md border border-danger/30 bg-surface px-3 py-2 text-sm text-danger">
               {error}
@@ -427,6 +523,8 @@ function DebugPanel({ state }) {
     ['hints', `${state.hintCount} / ${state.maxHints}`],
     ['hint allowed', state.hintAllowed ? '✓' : '✗'],
     ['hints exhausted', state.hintsExhausted ? '✓' : '✗'],
+    ['metacog prompts', state.mcpCount != null ? `${state.mcpCount} (total ${state.mcpTotal ?? '—'})` : '—'],
+    ['  ↳ awaiting answer', state.mcpAwaiting ? `✓ (re-ask ${state.mcpReask})` : '✗'],
     ['problem complete', state.isProblemComplete ? '✓' : '✗'],
     ['initial delay', `${state.initialDelay}s`],
     ['mid delay', `${state.midDelay}s`],

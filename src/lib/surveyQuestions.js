@@ -14,7 +14,7 @@ export const SURVEY_QUESTIONS = [
   {
     id: 'outside_tutoring',
     label:
-      'How often do you attend private tutoring or take classes for mathematics outside of school?',
+      'In a typical week, how many days do you attend private tutoring or take classes for mathematics outside of school?',
     type: 'scale',
     min: 0,
     max: 7,

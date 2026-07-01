@@ -42,6 +42,8 @@ export function buildRuntimeContext({
   maxHints,
   hintsExhausted,
   metacognitivePromptDue,
+  mcpAwaitingAnswer,
+  mcpReaskCount,
   conversation,
 }) {
   const safeCondition = condition || CENTER_CONDITION
@@ -65,7 +67,7 @@ Experiment condition:
 - Scaffolding fade rate: ${safeCondition.sfr_value} per hour
 
 Runtime state:
-- Current phase: ${isNewProblem ? 'active_socratic' : phase}
+- Current phase: ${isNewProblem ? 'active' : phase}
 - Estimated problem difficulty: ${difficulty || 'unknown'}
 - Hint allowed this turn: ${canHint ? 'true' : 'false'}
 - Hints given so far: ${Math.max(0, Number(hintCount || 0))}
@@ -76,31 +78,32 @@ Runtime state:
 - Initial hint delay required: ${initialHintDelaySeconds || 'not yet calculated'} seconds
 - Mid-problem hint delay required: ${midProblemDelaySeconds || 'not yet calculated'} seconds
 - Metacognitive prompt due: ${metacognitivePromptDue ? 'true' : 'false'}
+- Awaiting answer to a previous metacognitive prompt: ${mcpAwaitingAnswer ? 'true' : 'false'}
 
 Recent conversation:
 ${formatConversation(conversation)}
 
 Instruction for this response:
-${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), hintsExhausted: Boolean(hintsExhausted), metacognitivePromptDue: Boolean(metacognitivePromptDue) })}
+${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), hintsExhausted: Boolean(hintsExhausted), metacognitivePromptDue: Boolean(metacognitivePromptDue), mcpAwaitingAnswer: Boolean(mcpAwaitingAnswer), mcpReaskCount: Number(mcpReaskCount || 0) })}
 `.trim()
 }
 
 // Flags JSON template appended as the absolute last line of every follow-up response.
 // The model writes its prose message first, then this JSON on its own final line.
 const FLAGS_TEMPLATE =
-  '{"isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false,"responseType":"Socratic"}'
+  '{"isProblemComplete":false,"hintGiven":false,"metacognitivePromptIncluded":false,"responseType":"Hint"}'
 
 // Instruction appended to every follow-up turn telling the model the output format.
 const FLAGS_NOTE = [
   'IMPORTANT: Write your student-facing response as normal prose.',
   'Then, on a NEW FINAL LINE (no text before or after it on that line), write ONLY this compact JSON',
   `(replace boolean values and responseType as appropriate): ${FLAGS_TEMPLATE}`,
-  'responseType must be one of: "ProductiveFailure", "Socratic", "Hint", "Metacognitive", "Confirmation", "Redirect",',
+  'responseType must be one of: "ProductiveFailure", "Hint", "Metacognitive", "Confirmation", "Redirect",',
   'or a comma-separated combination when multiple genuinely apply.',
   'The JSON line is consumed by the research system and never shown to the student.',
 ].join(' ')
 
-function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue }) {
+function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, metacognitivePromptDue, mcpAwaitingAnswer, mcpReaskCount }) {
   if (isNewProblem) {
     return [
       'The student has submitted a new problem.',
@@ -115,19 +118,35 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Your message must be brief (1–2 sentences), warm, and purely a send-off to work independently — nothing more.',
       'Good (zero direction): "Nice problem! Give it a real try on your own first, then come back with what you find and we\'ll dig in together."',
       'Bad (contains direction): "Give it a try — test small values and see what patterns emerge." (this names a strategy — forbidden)',
-      LABEL_NOTE,
       'Return only valid JSON in this exact shape:',
-      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response\\n\\n[Productive Failure]"}.',
+      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response"}.',
     ].join(' ')
   }
-
-  // All follow-up turns return JSON so the route can reliably read flags.
-  const jsonNote = `${LABEL_NOTE} Return only valid JSON matching this shape exactly: ${FOLLOWUP_JSON_SHAPE}`
 
   // Standalone Socratic questioning is disabled. The hint system now carries
   // the gentle, question-shaped guidance role; outside an allowed hint the
   // tutor only acknowledges and encourages.
   const NO_SOCRATIC = 'Do NOT ask any Socratic questions this turn. Do not ask the student what they have tried, where they are stuck, or any open-ended process question.'
+
+  // Highest priority: a metacognitive prompt from a previous turn is still
+  // unanswered. Withhold further support until the student engages with it —
+  // but back off if they are resistant, and never push more than ~3 times.
+  if (mcpAwaitingAnswer) {
+    const nearingLimit = Number(mcpReaskCount || 0) >= 2
+    return [
+      'A metacognitive prompt was asked on a previous turn and has NOT yet been answered.',
+      'First, judge whether the student\'s current message genuinely answers that metacognitive prompt (a real attempt to reflect, even a brief one, counts as answered).',
+      'If it DOES answer it: acknowledge their reflection warmly in one sentence, set mcpAnswered to true, and then continue helping with whatever they need this turn.',
+      'If it does NOT answer it (they ignored it, changed the subject, or asked for something else): do NOT provide any hint, solution, or other help this turn.',
+      'Instead, gently but firmly tell them you need them to answer the reflection question before you can support them further, and restate the question briefly. Set mcpAnswered to false.',
+      nearingLimit
+        ? 'IMPORTANT: You have already asked more than once. If the student seems uncomfortable, resistant, or unable to answer, do NOT push again — let it go, set mcpDropped to true, briefly reassure them, and continue helping normally this turn.'
+        : 'If the student explicitly says they are not comfortable answering or cannot answer, do not force it — set mcpDropped to true, reassure them briefly, and continue helping this turn.',
+      'Keep your message short and warm, never scolding.',
+      'Append the flags JSON as the final line. In addition to the usual fields, include "mcpAnswered": true/false and "mcpDropped": true/false.',
+      FLAGS_NOTE,
+    ].join(' ')
+  }
 
   if (hintRequestedButDelayed) {
     return [
