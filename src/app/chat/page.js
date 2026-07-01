@@ -44,7 +44,7 @@ export default function ChatPage() {
   // 30 seconds before logout, an "Are you still there?" warning appears.
   useEffect(() => {
     const IDLE_LOGOUT_MS = 30 * 60 * 1000
-    const WARN_AT_MS = IDLE_LOGOUT_MS - 30 * 1000
+    const WARN_AT_MS = IDLE_LOGOUT_MS - 5 * 60 * 1000
     const id = setInterval(async () => {
       if (pausedRef.current) return
       const elapsed = Date.now() - lastInteractionRef.current
@@ -56,7 +56,8 @@ export default function ChatPage() {
         router.replace('/login')
       } else if (elapsed >= WARN_AT_MS) {
         setShowIdleWarning(true)
-        setIdleCountdown(Math.ceil((IDLE_LOGOUT_MS - elapsed) / 1000))
+        const secsLeft = Math.ceil((IDLE_LOGOUT_MS - elapsed) / 1000)
+        setIdleCountdown(secsLeft)
       } else {
         setShowIdleWarning(false)
       }
@@ -310,7 +311,7 @@ export default function ChatPage() {
               You will be signed out in
             </p>
             <p className="mb-6 font-serif text-3xl font-semibold tabular-nums text-primary">
-              {idleCountdown}s
+              {Math.floor(idleCountdown / 60)}:{String(idleCountdown % 60).padStart(2, '0')}
             </p>
             <button onClick={confirmStillHere} className="btn btn-primary w-full h-11">
               Yes, I&rsquo;m here
