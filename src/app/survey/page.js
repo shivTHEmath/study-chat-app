@@ -8,7 +8,7 @@ const SESSION_KEY = 'study_session_id'
 
 function getSessionId() {
   if (typeof window === 'undefined') return null
-  return sessionStorage.getItem(SESSION_KEY)
+  return localStorage.getItem(SESSION_KEY)
 }
 
 export default function SurveyPage() {
