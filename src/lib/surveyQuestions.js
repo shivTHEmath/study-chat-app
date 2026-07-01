@@ -7,12 +7,13 @@ export const SURVEY_QUESTIONS = [
   },
   {
     id: 'grade',
-    label: 'What grade or Standard are you currently in?',
+    label: 'What grade or standard are you currently in?',
     type: 'scale',
     min: 7,
     max: 10,
     minLabel: '',
     maxLabel: '',
+    allowSkip: true,
   },
   {
     id: 'outside_tutoring',
@@ -23,6 +24,7 @@ export const SURVEY_QUESTIONS = [
     max: 7,
     minLabel: 'Never',
     maxLabel: 'Every day, including weekends',
+    allowSkip: true,
   },
   {
     id: 'help_access',
@@ -30,10 +32,11 @@ export const SURVEY_QUESTIONS = [
       "When you don't understand a mathematics homework problem, how easy is it for you to get help?",
     type: 'select',
     options: [
-      'Very easy \u2014 someone is almost always available',
+      'Very easy — someone is almost always available',
       'Somewhat easy',
       'Somewhat difficult',
-      'Very difficult \u2014 I usually have no one to ask',
+      'Very difficult — I usually have no one to ask',
+      'Prefer not to say',
     ],
   },
   {
@@ -44,6 +47,7 @@ export const SURVEY_QUESTIONS = [
     max: 5,
     minLabel: 'Not at all',
     maxLabel: 'A lot',
+    allowSkip: true,
   },
   {
     id: 'participation',
@@ -54,6 +58,7 @@ export const SURVEY_QUESTIONS = [
     max: 5,
     minLabel: 'Rarely',
     maxLabel: 'Very often',
+    allowSkip: true,
   },
   {
     id: 'hw_completion',
@@ -63,26 +68,27 @@ export const SURVEY_QUESTIONS = [
     max: 5,
     minLabel: 'Rarely',
     maxLabel: 'Always',
+    allowSkip: true,
   },
   {
     id: 'study_hours_weekday',
     label:
       'On a typical weekday, how many hours do you spend studying or practicing mathematics outside of class?',
     type: 'select',
-    options: ['0', 'Less than 30 min', '30\u201360 min', '1\u20132 hours', 'More than 2 hours'],
+    options: ['0', 'Less than 30 min', '30–60 min', '1–2 hours', 'More than 2 hours', 'Prefer not to say'],
   },
   {
     id: 'study_hours_weekend',
     label:
       'On a typical weekend day, how many hours do you spend studying or practicing mathematics outside of class?',
     type: 'select',
-    options: ['0', 'Less than 30 min', '30\u201360 min', '1\u20132 hours', 'More than 2 hours'],
+    options: ['0', 'Less than 30 min', '30–60 min', '1–2 hours', 'More than 2 hours', 'Prefer not to say'],
   },
   {
     id: 'math_grade',
     label:
-      'What is your mathematics grade or score? Describe it however your school reports it in your report card for the last school year (letter grade, percentage, marks, etc.).',
-    type: 'text',
-    placeholder: 'e.g. B+, 85%, or "Satisfactory"',
+      'What percentage did you score in mathematics in your last school year report card?',
+    type: 'select',
+    options: ['< 70%', '70–80%', '80–90%', '> 90%', 'Prefer not to say'],
   },
 ]

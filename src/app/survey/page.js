@@ -252,6 +252,7 @@ function QuestionInput({ question, value, onChange, onSelect }) {
     const nums = []
     for (let i = question.min; i <= question.max; i++) nums.push(i)
     const wrap = nums.length > 5
+    const pntsSelected = value === 'prefer_not_to_say'
     return (
       <div>
         <div className={wrap ? 'grid grid-cols-4 gap-2 mb-2' : 'flex gap-2 mb-2'}>
@@ -268,10 +269,23 @@ function QuestionInput({ question, value, onChange, onSelect }) {
             </button>
           ))}
         </div>
-        <div className="flex justify-between text-xs text-muted">
-          <span>{question.minLabel}</span>
-          <span>{question.maxLabel}</span>
-        </div>
+        {(question.minLabel || question.maxLabel) && (
+          <div className="flex justify-between text-xs text-muted mb-2">
+            <span>{question.minLabel}</span>
+            <span>{question.maxLabel}</span>
+          </div>
+        )}
+        {question.allowSkip && (
+          <div className="mt-2 pt-2 border-t border-line">
+            <button
+              type="button"
+              onClick={() => handlePick('prefer_not_to_say')}
+              className={`choice w-full text-sm text-muted ${pntsSelected ? 'choice-selected' : ''}`}
+            >
+              Prefer not to say
+            </button>
+          </div>
+        )}
       </div>
     )
   }
