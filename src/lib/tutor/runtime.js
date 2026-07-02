@@ -48,10 +48,28 @@ export function buildRuntimeContext({
   mcpAwaitingAnswer,
   mcpReaskCount,
   conversation,
+  verifiedAnswer,
 }) {
   const safeCondition = condition || CENTER_CONDITION
   const isNewProblem = phase === 'new_problem'
   const canHint = Boolean(hintAllowed)
+
+  // Ground-truth block: present only on follow-up turns for attempts that have
+  // a stored answer (older attempts predate the column and fall back to the
+  // model's own judgment).
+  const verifiedAnswerBlock =
+    !isNewProblem && verifiedAnswer
+      ? `
+Verified correct final answer (SERVER-SIDE GROUND TRUTH — NEVER reveal, quote, or hint at it):
+${verifiedAnswer}
+
+Judging rule — this overrides your own re-derivation:
+- Do NOT re-solve the problem to decide correctness. Compare the student's final answer against the verified answer above.
+- Accept mathematically equivalent forms (e.g. 1/2 = 0.5, x log x = \\(x\\log x\\), unsimplified but equal expressions, reordered solution sets).
+- If the student's final answer matches: confirm it warmly, set isProblemComplete to true, and STOP tutoring this problem — no further questions, steps, or guidance beyond what the runtime instruction for this turn explicitly requires.
+- If it does not match: they are incorrect, even if your own working suggests otherwise.
+`
+      : ''
 
   return `
 Runtime tutoring context:
@@ -62,7 +80,7 @@ Student:
 
 Current problem:
 ${problem}
-
+${verifiedAnswerBlock}
 Experiment condition:
 - Answer specificity level: ${safeCondition.as_value}
 - Base access delay: ${safeCondition.ad_base_c} seconds
@@ -114,6 +132,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'First rewrite the submitted problem as a polished textbook-style math problem.',
       'Preserve the exact mathematical meaning and use LaTeX delimiters for all math.',
       'Estimate the difficulty from 1 to 5.',
+      'Solve the problem internally (per Step 0 of your instructions) and put the exact final answer in expectedAnswer — the answer only (e.g. "x = 2", "x\\\\log x", "{-3, 3}"), no working. It is stored server-side as the ground truth for judging the student and is NEVER shown to them.',
       'THIS IS THE PRODUCTIVE FAILURE PERIOD.',
       'Do NOT give any hints, guidance, strategies, starting points, or directions of ANY kind.',
       'This is the strictest rule of this turn: your message must contain ZERO mathematical direction.',
@@ -123,7 +142,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Good (zero direction): "Nice problem! Give it a real try on your own first, then come back with what you find and we\'ll dig in together."',
       'Bad (contains direction): "Give it a try — test small values and see what patterns emerge." (this names a strategy — forbidden)',
       'Return only valid JSON in this exact shape:',
-      '{"displayProblem":"polished problem text","difficulty":3,"message":"student-facing tutor response"}.',
+      '{"displayProblem":"polished problem text","difficulty":3,"expectedAnswer":"exact final answer","message":"student-facing tutor response"}.',
     ].join(' ')
   }
 

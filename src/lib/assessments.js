@@ -6,7 +6,7 @@ const ASSESSMENT_ITEM_COUNT = 10
 const ASSESSMENT_MODEL =
   process.env.OPENAI_ASSESSMENT_MODEL ||
   process.env.OPENAI_MODEL ||
-  'gpt-5.4'
+  'gpt-5.4-mini'
 
 // Lazy singleton: the OpenAI SDK throws at construction when the key is
 // missing, which would break the build during page-data collection.
@@ -220,7 +220,8 @@ async function generateAssessmentItems({ sourceQuestions, grade }) {
   try {
     const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
-      max_completion_tokens: 5000,
+      max_completion_tokens: 8000,
+      reasoning_effort: 'medium',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You write mathematically correct student assessments. Output only valid JSON.' },
@@ -491,7 +492,8 @@ async function evaluateResponses({ items, responses }) {
   try {
     const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
-      max_completion_tokens: 3000,
+      max_completion_tokens: 5000,
+      reasoning_effort: 'medium',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You grade short math assessment answers. Output only valid JSON.' },

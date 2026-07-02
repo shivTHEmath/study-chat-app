@@ -185,6 +185,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     originalProblem: body.problem,
     displayProblem,
     difficulty,
+    expectedAnswer: parsed?.expectedAnswer || null,
   })
 
   await logQuestion(admin, userId, {
@@ -309,16 +310,20 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     mcpAwaitingAnswer,
     mcpReaskCount,
     conversation: body.conversation,
+    verifiedAnswer: attempt?.expected_answer || null,
   })
 
-  const { text: modelText, usage } = await askTutor(runtimeContext, body.studentMessage)
+  const { text: modelText, usage, finishReason } = await askTutor(runtimeContext, body.studentMessage)
   const parsed = parseFollowUpResponse(modelText)
   let tutorMessage = parsed.message
 
   // Guard: never surface an empty bubble. If parsing yielded nothing (e.g. a
   // truncated or malformed response), log the raw text and fall back.
   if (!tutorMessage || !tutorMessage.trim()) {
-    console.error('[api/chat] empty tutor message. raw model text:', JSON.stringify(modelText).slice(0, 500))
+    console.error(
+      '[api/chat] empty tutor message. finish_reason:', finishReason,
+      'raw model text:', JSON.stringify(modelText).slice(0, 500)
+    )
     tutorMessage = 'Sorry — I lost my train of thought there. Could you say that again?'
   }
 
@@ -439,7 +444,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 // Classifies whether an incoming message starts a NEW problem or is a FOLLOW-UP
 // to the active one. Uses a fast, cheap model. Returns { intent, confidence }.
 // On any failure, returns confidence 0 so the UI asks the student to choose.
-const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.4'
+const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.4-mini'
 
 async function classifyIntent(currentProblem, conversation, studentMessage) {
   try {
@@ -468,7 +473,8 @@ async function classifyIntent(currentProblem, conversation, studentMessage) {
 
     const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_completion_tokens: 400,
+      max_completion_tokens: 600,
+      reasoning_effort: 'low',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a precise intent classifier. Output only the requested JSON, nothing else.' },
@@ -529,7 +535,8 @@ async function classifyGeneralInquiry(studentMessage, conversation) {
 
     const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_completion_tokens: 400,
+      max_completion_tokens: 600,
+      reasoning_effort: 'low',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a precise, skeptical classifier. Output only the requested JSON, nothing else.' },
@@ -609,8 +616,10 @@ async function handleGeneralInquiry({ admin, body, grade, participantCounters, u
 
 async function askGeneralTutor(context, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4',
-    max_completion_tokens: 1200,
+    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    // Includes reasoning-token headroom (see askTutor).
+    max_completion_tokens: 3000,
+    reasoning_effort: 'medium',
     messages: [
       { role: 'system', content: GENERAL_INQUIRY_SYSTEM_PROMPT },
       {
@@ -631,8 +640,11 @@ async function askGeneralTutor(context, studentMessage) {
 
 async function askTutor(runtimeContext, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4',
-    max_completion_tokens: 3000,
+    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    // Reasoning tokens count against this budget; keep generous headroom so
+    // deliberation can never starve the visible message to empty.
+    max_completion_tokens: 6000,
+    reasoning_effort: 'medium',
     messages: [
       { role: 'system', content: TUTOR_SYSTEM_PROMPT },
       {
@@ -644,6 +656,7 @@ async function askTutor(runtimeContext, studentMessage) {
 
   return {
     text: extractText(response),
+    finishReason: response.choices?.[0]?.finish_reason ?? null,
     usage: {
       input: response.usage?.prompt_tokens ?? null,
       output: response.usage?.completion_tokens ?? null,
@@ -759,6 +772,7 @@ async function createProblemAttempt({
   originalProblem,
   displayProblem,
   difficulty,
+  expectedAnswer,
 }) {
   const { data, error } = await admin
     .from('problem_attempts')
@@ -768,6 +782,7 @@ async function createProblemAttempt({
       original_problem: originalProblem,
       display_problem: displayProblem,
       difficulty,
+      expected_answer: expectedAnswer ?? null,
       as_value: condition.as_value,
       ad_base_c: condition.ad_base_c,
       mcp_value: condition.mcp_value,
@@ -998,6 +1013,10 @@ function parseNewProblemResponse(text) {
     return {
       displayProblem: parsed.displayProblem.trim(),
       difficulty: clampDifficulty(parsed.difficulty),
+      expectedAnswer:
+        typeof parsed.expectedAnswer === 'string' && parsed.expectedAnswer.trim()
+          ? parsed.expectedAnswer.trim()
+          : null,
       // Strip any old [Label] suffix the model may have included
       message: parsed.message.replace(/\n\[[\w\s,]+\]\s*$/, '').trim(),
     }
@@ -1007,9 +1026,11 @@ function parseNewProblemResponse(text) {
   const dpMatch = stripped.match(/"displayProblem"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
   const msgMatch = stripped.match(/"message"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
   if (dpMatch && msgMatch) {
+    const eaMatch = stripped.match(/"expectedAnswer"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
     return {
       displayProblem: unescapeJsonString(dpMatch[1]).trim(),
       difficulty: clampDifficulty((stripped.match(/"difficulty"\s*:\s*(\d)/) || [])[1]),
+      expectedAnswer: eaMatch ? unescapeJsonString(eaMatch[1]).trim() || null : null,
       message: unescapeJsonString(msgMatch[1]).replace(/\n\[[\w\s,]+\]\s*$/, '').trim(),
     }
   }
