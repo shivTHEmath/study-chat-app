@@ -439,7 +439,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 // Classifies whether an incoming message starts a NEW problem or is a FOLLOW-UP
 // to the active one. Uses a fast, cheap model. Returns { intent, confidence }.
 // On any failure, returns confidence 0 so the UI asks the student to choose.
-const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.4-mini'
+const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.4'
 
 async function classifyIntent(currentProblem, conversation, studentMessage) {
   try {
@@ -609,7 +609,7 @@ async function handleGeneralInquiry({ admin, body, grade, participantCounters, u
 
 async function askGeneralTutor(context, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-5.4',
     max_completion_tokens: 1200,
     messages: [
       { role: 'system', content: GENERAL_INQUIRY_SYSTEM_PROMPT },
@@ -631,7 +631,7 @@ async function askGeneralTutor(context, studentMessage) {
 
 async function askTutor(runtimeContext, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-5.4',
     max_completion_tokens: 3000,
     messages: [
       { role: 'system', content: TUTOR_SYSTEM_PROMPT },
@@ -947,7 +947,7 @@ function parseFollowUpResponse(text) {
   const raw = String(text || '').trim()
 
   // Primary path: new format — prose followed by a compact flags JSON object.
-  // Some models (e.g. gpt-5.4-mini) glue the "{" onto the end of the last
+  // Some models (e.g. gpt-5.4) glue the "{" onto the end of the last
   // prose line instead of starting a fresh line, so scan for a trailing
   // {...} object anywhere at the end of the string rather than requiring it
   // to be its own line.

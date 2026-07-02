@@ -6,7 +6,7 @@ const ASSESSMENT_ITEM_COUNT = 10
 const ASSESSMENT_MODEL =
   process.env.OPENAI_ASSESSMENT_MODEL ||
   process.env.OPENAI_MODEL ||
-  'gpt-5.4-mini'
+  'gpt-5.4'
 
 // Lazy singleton: the OpenAI SDK throws at construction when the key is
 // missing, which would break the build during page-data collection.
