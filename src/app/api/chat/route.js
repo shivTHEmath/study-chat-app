@@ -315,8 +315,8 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   if (attempt?.id) {
     if (mcpAwaitingAnswer) {
       // We were waiting for the student to answer a previous MCP.
-      if (parsed.mcpAnswered || parsed.mcpDropped) {
-        // Answered, or we backed off — stop waiting and reset the counter.
+      if (parsed.mcpAnswered || parsed.mcpDropped || parsed.isProblemComplete) {
+        // Answered, backed off, or problem is done — stop waiting and reset.
         resultAwaiting = false
         resultReask = 0
       } else {
@@ -325,7 +325,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
         resultAwaiting = resultReask < 3
       }
       await updateMcpAwaitState(admin, attempt.id, resultAwaiting, resultReask)
-    } else if (mcpDelivered) {
+    } else if (mcpDelivered && !parsed.isProblemComplete) {
       // A fresh MCP was delivered this turn — start awaiting its answer.
       resultAwaiting = true
       resultReask = 0
