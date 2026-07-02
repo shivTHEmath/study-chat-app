@@ -304,7 +304,7 @@ export default function AssessmentPage() {
                   value={answers[item.id] || ''}
                   onChange={(e) => setAnswers((c) => ({ ...c, [item.id]: e.target.value }))}
                   rows={2}
-                  placeholder="Show your reasoning and give the answer"
+                  placeholder="Your answer"
                   className="field resize-none"
                 />
               </section>
