@@ -29,10 +29,11 @@ export function StudyFooter() {
 }
 
 // Centered single-card layout shared by the auth / informational screens.
-export function CenteredPage({ children }) {
+// `maxWidthClass` lets a screen widen the column (e.g. the intro video page).
+export function CenteredPage({ children, maxWidthClass = 'max-w-md' }) {
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md">{children}</div>
+      <div className={`w-full ${maxWidthClass}`}>{children}</div>
     </main>
   )
 }
