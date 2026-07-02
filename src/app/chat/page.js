@@ -27,6 +27,7 @@ export default function ChatPage() {
   const [idleCountdown, setIdleCountdown] = useState(30)
   const [pendingIntent, setPendingIntent] = useState(null)  // { text } when intent is ambiguous
   const [assessmentAvailable, setAssessmentAvailable] = useState(false)
+  const [generalMode, setGeneralMode] = useState(false)     // open teaching conversation, no active problem
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
@@ -163,6 +164,7 @@ export default function ChatPage() {
     setProblemPending(false)
     setMessages([])
     setAttemptId(null)
+    setGeneralMode(false)
     setError('')
     setInput('')
     setProblemOpen(true)
@@ -179,7 +181,22 @@ export default function ChatPage() {
     setPendingIntent(null)
     setError('')
     setSending(true)
-    if (!problem) {
+    if (generalMode) {
+      // Open teaching conversation — keep the thread and send the full history so
+      // the tutor has context. The server re-checks each turn; if the student
+      // pivots to a specific problem, it switches into problem mode.
+      const nextMessages = [...messages, { role: 'user', text }]
+      setMessages(nextMessages)
+      setInput('')
+      requestAnimationFrame(autoGrow)
+
+      await requestTutorMessage({
+        problemText: '',
+        studentMessage: text,
+        phase: 'general',
+        nextMessages,
+      })
+    } else if (!problem) {
       setProblemPending(true)
       setProblemOpen(true)
       setInput('')
@@ -280,13 +297,40 @@ export default function ChatPage() {
         return
       }
 
-      // Resolve whether this turn ended up being a new problem (either explicitly
-      // requested, or auto-detected). If so, reset the thread and stats — the
+      // General inquiry — direct teaching, no problem card. Enter general mode and
+      // show the exchange as a normal conversation. The user's message may not be
+      // in the thread yet (the fresh new_problem path doesn't add it), so add it
+      // if it's missing.
+      if (data.generalInquiry) {
+        setProblemPending(false)
+        setGeneralMode(true)
+        setMessages((m) => {
+          const last = m[m.length - 1]
+          const base =
+            last && last.role === 'user' && last.text === studentMessage
+              ? m
+              : [...m, { role: 'user', text: studentMessage }]
+          return data.message ? [...base, data.message] : base
+        })
+        if (data.clockState) {
+          setClockState(data.clockState)
+          if (!data.clockState.pendingCheckinType) setPendingCheckinType(null)
+        }
+        return
+      }
+
+      // Resolve whether this turn ended up being a new problem (explicitly
+      // requested, auto-detected, or a pivot to a specific problem from general
+      // mode). If so, reset the thread and enter problem mode — the
       // optimistically-shown user message was actually a new problem, not a reply.
       const resolvedNewProblem =
-        phase === 'new_problem' || (phase === 'auto' && data.intent === 'new_problem')
+        Boolean(data.displayProblem) &&
+        (phase === 'new_problem' ||
+          phase === 'general' ||
+          (phase === 'auto' && data.intent === 'new_problem'))
 
-      if (resolvedNewProblem && data.displayProblem) {
+      if (resolvedNewProblem) {
+        setGeneralMode(false)
         setMessages([])
         setAttemptId(null)
         setProblem(data.displayProblem)
@@ -420,46 +464,49 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Sticky, collapsible problem card */}
-      <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-          <div className="card overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setProblemOpen((o) => !o)}
-              aria-expanded={problemOpen}
-              className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
-            >
-              <span className="eyebrow">Problem</span>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                className={`text-muted transition-transform ${problemOpen ? 'rotate-180' : ''}`}
+      {/* Sticky, collapsible problem card — hidden during a general teaching
+          conversation, which has no specific problem. */}
+      {!generalMode && (
+        <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
+          <div className="max-w-2xl mx-auto px-4 py-3">
+            <div className="card overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setProblemOpen((o) => !o)}
+                aria-expanded={problemOpen}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
               >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-            {problemOpen ? (
-              <div className="px-4 pb-4 -mt-1">
-                <p className={`text-[15px] leading-relaxed ${problem ? 'text-ink' : 'text-muted'}`}>
+                <span className="eyebrow">Problem</span>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className={`text-muted transition-transform ${problemOpen ? 'rotate-180' : ''}`}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+              {problemOpen ? (
+                <div className="px-4 pb-4 -mt-1">
+                  <p className={`text-[15px] leading-relaxed ${problem ? 'text-ink' : 'text-muted'}`}>
+                    <MathText text={getProblemText({ problem, problemPending })} />
+                  </p>
+                </div>
+              ) : (
+                <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">
                   <MathText text={getProblemText({ problem, problemPending })} />
                 </p>
-              </div>
-            ) : (
-              <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">
-                <MathText text={getProblemText({ problem, problemPending })} />
-              </p>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Conversation */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
