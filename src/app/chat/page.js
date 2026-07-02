@@ -22,7 +22,6 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [clockState, setClockState] = useState(null)          // returned by /api/chat
   const [pendingCheckinType, setPendingCheckinType] = useState(null)
-  const [debugState, setDebugState] = useState(null)          // TESTING: runtime debug panel
   const [paused, setPaused] = useState(false)
   const [showIdleWarning, setShowIdleWarning] = useState(false)
   const [idleCountdown, setIdleCountdown] = useState(30)
@@ -164,7 +163,6 @@ export default function ChatPage() {
     setProblemPending(false)
     setMessages([])
     setAttemptId(null)
-    setDebugState(null)
     setError('')
     setInput('')
     setProblemOpen(true)
@@ -291,7 +289,6 @@ export default function ChatPage() {
       if (resolvedNewProblem && data.displayProblem) {
         setMessages([])
         setAttemptId(null)
-        setDebugState(null)
         setProblem(data.displayProblem)
         setProblemPending(false)
       }
@@ -313,36 +310,6 @@ export default function ChatPage() {
       if (data.assessmentAvailable) {
         setAssessmentAvailable(true)
       }
-
-      // TESTING: capture runtime state for debug panel
-      setDebugState({
-        difficulty: data.runtime?.difficulty ?? '—',
-        asValue: data.runtime?.asValue ?? null,
-        hintCount: data.runtime?.hintCount ?? '—',
-        maxHints: data.runtime?.maxHints ?? '—',
-        hintAllowed: data.hintAllowed ?? false,
-        hintsExhausted: data.hintsExhausted ?? false,
-        isProblemComplete: data.isProblemComplete ?? false,
-        initialDelay: data.runtime?.initialHintDelaySeconds ?? '—',
-        midDelay: data.runtime?.midProblemDelaySeconds ?? '—',
-        secSinceStart: data.runtime?.secondsSinceStarted ?? '—',
-        secUntilHint: data.runtime?.secondsUntilHint ?? '—',
-        nextHintAt: data.nextHintAvailableAt ?? null,
-        engagedSec: data.clockState?.cumulativeEngagedSeconds ?? '—',
-        attemptFound: data.debug?.attemptFound,
-        conditionId: data.debug?.conditionId ?? '—',
-        conditionSource: data.debug?.conditionSource ?? '—',
-        baseAS: data.debug?.baseAS ?? null,
-        sfrValue: data.debug?.sfrValue ?? null,
-        fadeMultiplier: data.debug?.fadeMultiplier ?? null,
-        engagedHours: data.debug?.engagedHours ?? null,
-        mcpCount: data.debug?.mcpCount ?? null,
-        mcpTotal: data.debug?.mcpTotal ?? null,
-        mcpTarget: data.debug?.mcpTarget ?? null,
-        mcpRemaining: data.debug?.mcpRemaining ?? null,
-        mcpAwaiting: data.debug?.mcpAwaiting ?? false,
-        mcpReask: data.debug?.mcpReask ?? 0,
-      })
     } catch (err) {
       setError(err.message || 'The tutor could not respond. Please try again.')
       if (phase === 'new_problem') {
@@ -498,7 +465,7 @@ export default function ChatPage() {
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-5 flex flex-col gap-4">
           {messages.map((m, i) => (
-            <Message key={i} role={m.role} text={m.text} tokens={m.tokens} />
+            <Message key={i} role={m.role} text={m.text} />
           ))}
           {sending && <TypingIndicator />}
           {pendingIntent && !sending && (
@@ -579,58 +546,6 @@ export default function ChatPage() {
           </div>
         )}
       </div>
-
-      {/* TESTING: runtime debug panel */}
-      {debugState && <DebugPanel state={debugState} />}
-    </div>
-  )
-}
-
-function DebugPanel({ state }) {
-  const rows = [
-    ['difficulty', state.difficulty],
-    ['hint specificity', state.asValue != null ? `${Math.round(state.asValue)}%` : '—'],
-    ['  ↳ condition', `#${state.conditionId} (${state.conditionSource})`],
-    ['  ↳ attempt found', state.attemptFound ? '✓' : '✗ FALLBACK'],
-    ['  ↳ base AS', state.baseAS != null ? Math.round(state.baseAS) : '—'],
-    ['  ↳ sfr', state.sfrValue ?? '—'],
-    ['  ↳ fade ×', state.fadeMultiplier != null ? state.fadeMultiplier.toFixed(3) : '—'],
-    ['  ↳ engaged hrs', state.engagedHours != null ? state.engagedHours.toFixed(2) : '—'],
-    ['hints', `${state.hintCount} / ${state.maxHints}`],
-    ['hint allowed', state.hintAllowed ? '✓' : '✗'],
-    ['hints exhausted', state.hintsExhausted ? '✓' : '✗'],
-    ['metacog prompts', state.mcpCount != null ? `${state.mcpCount} / ${state.mcpTarget ?? '—'} (total ${state.mcpTotal ?? '—'})` : '—'],
-    ['  ↳ remaining', state.mcpRemaining ?? '—'],
-    ['  ↳ awaiting answer', state.mcpAwaiting ? `✓ (re-ask ${state.mcpReask})` : '✗'],
-    ['problem complete', state.isProblemComplete ? '✓' : '✗'],
-    ['initial delay', `${state.initialDelay}s`],
-    ['mid delay', `${state.midDelay}s`],
-    ['sec since start', state.secSinceStart],
-    ['sec until hint', state.secUntilHint],
-    ['engaged sec', state.engagedSec],
-  ]
-  return (
-    <div style={{
-      position: 'fixed',
-      bottom: 80,
-      left: 8,
-      zIndex: 50,
-      background: 'rgba(0,0,0,0.78)',
-      color: '#a3e635',
-      fontFamily: 'monospace',
-      fontSize: 10,
-      lineHeight: 1.5,
-      borderRadius: 6,
-      padding: '6px 10px',
-      pointerEvents: 'none',
-      maxWidth: 180,
-    }}>
-      <div style={{ color: '#facc15', fontWeight: 700, marginBottom: 3 }}>⚙ debug</div>
-      {rows.map(([k, v]) => (
-        <div key={k}>
-          <span style={{ color: '#94a3b8' }}>{k}: </span>{String(v)}
-        </div>
-      ))}
     </div>
   )
 }
@@ -656,7 +571,7 @@ function getProblemText({ problem, problemPending }) {
   return 'Enter your question below.'
 }
 
-function Message({ role, text, tokens }) {
+function Message({ role, text }) {
   // System messages (idle check-ins) appear as a centred, muted notice.
   if (role === 'system') {
     return (
@@ -690,11 +605,6 @@ function Message({ role, text, tokens }) {
         <div className="rounded-2xl rounded-bl-md border border-line bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-ink">
           <MathText text={text} />
         </div>
-        {tokens && (tokens.input != null || tokens.output != null) && (
-          <p className="mt-1 text-[10px] font-mono text-faint">
-            {tokens.input ?? '?'} in / {tokens.output ?? '?'} out tokens
-          </p>
-        )}
       </div>
     </div>
   )
