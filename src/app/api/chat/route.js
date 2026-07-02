@@ -468,8 +468,7 @@ async function classifyIntent(currentProblem, conversation, studentMessage) {
 
     const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_completion_tokens: 60,
-      reasoning_effort: 'low',
+      max_completion_tokens: 400,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a precise intent classifier. Output only the requested JSON, nothing else.' },
@@ -530,8 +529,7 @@ async function classifyGeneralInquiry(studentMessage, conversation) {
 
     const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_completion_tokens: 60,
-      reasoning_effort: 'low',
+      max_completion_tokens: 400,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a precise, skeptical classifier. Output only the requested JSON, nothing else.' },
@@ -613,7 +611,6 @@ async function askGeneralTutor(context, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     max_completion_tokens: 1200,
-    reasoning_effort: 'xhigh',
     messages: [
       { role: 'system', content: GENERAL_INQUIRY_SYSTEM_PROMPT },
       {
@@ -636,7 +633,6 @@ async function askTutor(runtimeContext, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     max_completion_tokens: 3000,
-    reasoning_effort: 'xhigh',
     messages: [
       { role: 'system', content: TUTOR_SYSTEM_PROMPT },
       {
