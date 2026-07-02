@@ -209,56 +209,107 @@ function fallbackItems(sourceQuestions) {
   })
 }
 
+// Generous output budget: reasoning tokens count against this limit, and a
+// starved budget truncates the JSON mid-item — the root cause of silent
+// fallback assessments (10 items + rubrics at high reasoning need headroom).
+const ASSESSMENT_GENERATION_MAX_TOKENS = 16000
+
+function normalizeGeneratedItem(item) {
+  return {
+    prompt: item.prompt,
+    expectedAnswer: item.expectedAnswer,
+    rubric: item.rubric,
+    answerFormat: item.answerFormat === 'proof' ? 'proof' : 'short_answer',
+    transferType: ['cross_topic_transfer', 'paraphrase', 'number_change'].includes(
+      item.transferType
+    )
+      ? item.transferType
+      : 'paraphrase',
+    sourceIndex: Number(item.sourceIndex) || 1,
+  }
+}
+
+// One generation round-trip. Returns however many complete, valid items the
+// model produced (possibly fewer than requested if the output was truncated).
+async function requestGeneratedItems(userPrompt) {
+  const response = await getOpenAI().chat.completions.create({
+    model: ASSESSMENT_MODEL,
+    max_completion_tokens: ASSESSMENT_GENERATION_MAX_TOKENS,
+    reasoning_effort: 'high',
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: 'You write mathematically correct student assessments. Output only valid JSON.' },
+      { role: 'user', content: userPrompt },
+    ],
+  })
+
+  const parsed = safeJsonParse(extractText(response))
+  const rawItems = Array.isArray(parsed?.items) ? parsed.items : []
+  return {
+    items: rawItems.filter((item) => item?.prompt && item?.expectedAnswer && item?.rubric),
+    strategySummary: typeof parsed?.strategySummary === 'string' ? parsed.strategySummary : '',
+  }
+}
+
+function buildTopUpPrompt({ sourceQuestions, grade, existingItems, missingCount }) {
+  return `${buildGenerationPrompt({ sourceQuestions, grade })}
+
+IMPORTANT ADJUSTMENT: A previous call already produced ${existingItems.length} of the ${ASSESSMENT_ITEM_COUNT} problems. Create exactly ${missingCount} NEW problems that do not duplicate or closely resemble any of these existing ones:
+
+${JSON.stringify(existingItems.map((item) => item.prompt), null, 2)}
+
+Return only JSON in the same shape, with exactly ${missingCount} items.`
+}
+
 async function generateAssessmentItems({ sourceQuestions, grade }) {
   if (!process.env.OPENAI_API_KEY) {
     return {
-      strategySummary: 'Fallback paraphrases generated because OpenAI is not configured.',
+      strategySummary: 'FALLBACK: paraphrases generated because OpenAI is not configured.',
       items: fallbackItems(sourceQuestions),
+      usedFallback: true,
     }
   }
 
   try {
-    const response = await getOpenAI().chat.completions.create({
-      model: ASSESSMENT_MODEL,
-      max_completion_tokens: 10000,
-      reasoning_effort: 'high',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: 'You write mathematically correct student assessments. Output only valid JSON.' },
-        { role: 'user', content: buildGenerationPrompt({ sourceQuestions, grade }) },
-      ],
-    })
+    // Round 1 — ask for the full set. Keep whatever valid items came back.
+    const first = await requestGeneratedItems(buildGenerationPrompt({ sourceQuestions, grade }))
+    let items = first.items.slice(0, ASSESSMENT_ITEM_COUNT)
+    let toppedUp = false
 
-    const parsed = safeJsonParse(extractText(response))
-    const rawItems = Array.isArray(parsed?.items) ? parsed.items : []
-    const validItems = rawItems
-      .filter((item) => item?.prompt && item?.expectedAnswer && item?.rubric)
-      .slice(0, ASSESSMENT_ITEM_COUNT)
-
-    if (validItems.length !== ASSESSMENT_ITEM_COUNT) {
-      throw new Error('invalid assessment item count')
+    // Round 2 (salvage + top-up) — if short, keep the valid items and request
+    // only the missing count, telling the model what already exists so it
+    // doesn't duplicate. A smaller request also needs far fewer tokens, so it
+    // is unlikely to hit the same truncation that shorted round 1.
+    if (items.length < ASSESSMENT_ITEM_COUNT) {
+      const missingCount = ASSESSMENT_ITEM_COUNT - items.length
+      console.error(
+        `[assessments] generation round 1 returned ${items.length}/${ASSESSMENT_ITEM_COUNT} items; requesting ${missingCount} more`
+      )
+      const topUp = await requestGeneratedItems(
+        buildTopUpPrompt({ sourceQuestions, grade, existingItems: items, missingCount })
+      )
+      items = items.concat(topUp.items).slice(0, ASSESSMENT_ITEM_COUNT)
+      toppedUp = true
     }
 
+    if (items.length !== ASSESSMENT_ITEM_COUNT) {
+      throw new Error(
+        `invalid assessment item count after top-up: ${items.length}/${ASSESSMENT_ITEM_COUNT}`
+      )
+    }
+
+    const summary = first.strategySummary || 'Generated from prior student questions.'
     return {
-      strategySummary: parsed.strategySummary || 'Generated from prior student questions.',
-      items: validItems.map((item) => ({
-        prompt: item.prompt,
-        expectedAnswer: item.expectedAnswer,
-        rubric: item.rubric,
-        answerFormat: item.answerFormat === 'proof' ? 'proof' : 'short_answer',
-        transferType: ['cross_topic_transfer', 'paraphrase', 'number_change'].includes(
-          item.transferType
-        )
-          ? item.transferType
-          : 'paraphrase',
-        sourceIndex: Number(item.sourceIndex) || 1,
-      })),
+      strategySummary: toppedUp ? `${summary} (completed via top-up retry)` : summary,
+      items: items.map(normalizeGeneratedItem),
+      usedFallback: false,
     }
   } catch (err) {
-    console.error('[assessments] generation failed:', err)
+    console.error('[assessments] generation failed (after top-up retry):', err)
     return {
-      strategySummary: 'Fallback paraphrases generated because assessment generation failed.',
+      strategySummary: 'FALLBACK: verbatim source questions used because AI generation failed twice. Review this assessment before including it in analysis.',
       items: fallbackItems(sourceQuestions),
+      usedFallback: true,
     }
   }
 }

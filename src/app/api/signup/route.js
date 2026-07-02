@@ -20,6 +20,12 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Username and password required.' }, { status: 400 })
     }
 
+    // Server-side enforcement: the client's minLength is advisory only, and
+    // admin.createUser bypasses Supabase's password policy entirely.
+    if (String(password).length < 6) {
+      return NextResponse.json({ error: 'Password must be at least 6 characters.' }, { status: 400 })
+    }
+
     // Invite code gate
     if (process.env.STUDY_INVITE_CODE && inviteCode !== process.env.STUDY_INVITE_CODE) {
       return NextResponse.json({ error: 'Invalid invite code.' }, { status: 403 })

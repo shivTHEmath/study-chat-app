@@ -173,6 +173,36 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
 
   const { text: modelText, usage } = await askTutor(runtimeContext, body.studentMessage)
   const parsed = parseNewProblemResponse(modelText)
+
+  // Not a math problem (trivia, other subjects, chit-chat): decline warmly and
+  // create NO problem attempt — nothing enters the research pipeline. Reuses the
+  // client's generalInquiry path, which renders the message without a problem card.
+  if (parsed && parsed.isMath === false) {
+    const declineMessage =
+      (parsed.message || '').trim() ||
+      'I can’t help with non-math questions here. If you want, I can help you with a math topic instead — like percentages, geometry, equations, or statistics.'
+    await logQuestion(admin, userId, {
+      question: body.problem,
+      response: declineMessage,
+      studentMessage: body.studentMessage,
+      attemptId: null,
+      phase: 'non_math_decline',
+      tokensIn: usage?.input ?? null,
+      tokensOut: usage?.output ?? null,
+    })
+    return Response.json({
+      generalInquiry: true,
+      intent: 'non_math',
+      clockState: {
+        cumulativeEngagedSeconds: newCumulativeSeconds,
+        lastActivityAt: clockUpdates.last_activity_at,
+        clockPausedAt: clockUpdates.clock_paused_at ?? null,
+        pendingCheckinType: clockUpdates.pending_checkin_type ?? null,
+      },
+      message: { role: 'tutor', text: declineMessage, tokens: usage },
+    })
+  }
+
   const displayProblem = parsed?.displayProblem || body.problem
   const difficulty = clampDifficulty(parsed?.difficulty || 3)
   const tutorMessage = parsed?.message || modelText
@@ -379,7 +409,10 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   // due (and buildable), tell the client so it surfaces the banner as a natural
   // next step — instead of bouncing their next message mid-flow.
   let assessmentAvailable = false
-  if (parsed.isProblemComplete && attempt?.id) {
+  // Guard on !completed_at: the model re-reports isProblemComplete on
+  // post-completion turns (justifications, thanks), which double-counted
+  // problems_completed. Only the FIRST completion of an attempt counts.
+  if (parsed.isProblemComplete && attempt?.id && !attempt.completed_at) {
     await completeProblem(admin, userId, participantCounters.problems_completed, attempt.id)
     const gate = await assessmentGateStatus(admin, userId, {
       next_assessment_due_at: participantCounters.next_assessment_due_at,
@@ -1011,6 +1044,8 @@ function parseNewProblemResponse(text) {
   const parsed = tryParseJson(stripped)
   if (parsed && typeof parsed.displayProblem === 'string' && typeof parsed.message === 'string') {
     return {
+      // Absent isMath (older responses) defaults to true.
+      isMath: parsed.isMath !== false,
       displayProblem: parsed.displayProblem.trim(),
       difficulty: clampDifficulty(parsed.difficulty),
       expectedAnswer:
@@ -1028,6 +1063,7 @@ function parseNewProblemResponse(text) {
   if (dpMatch && msgMatch) {
     const eaMatch = stripped.match(/"expectedAnswer"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
     return {
+      isMath: !/"isMath"\s*:\s*false/.test(stripped),
       displayProblem: unescapeJsonString(dpMatch[1]).trim(),
       difficulty: clampDifficulty((stripped.match(/"difficulty"\s*:\s*(\d)/) || [])[1]),
       expectedAnswer: eaMatch ? unescapeJsonString(eaMatch[1]).trim() || null : null,

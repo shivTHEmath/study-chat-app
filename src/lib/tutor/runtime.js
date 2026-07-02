@@ -129,6 +129,8 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
   if (isNewProblem) {
     return [
       'The student has submitted a new problem.',
+      'FIRST, judge whether the submission is genuinely a mathematics problem or mathematics topic.',
+      'If it is NOT mathematics (trivia, another school subject, general chit-chat, anything else): set isMath to false, set displayProblem and expectedAnswer to empty strings, set difficulty to 1, and write a brief, warm message saying you can only help with mathematics here and inviting them to bring a math question instead (e.g. percentages, geometry, equations). Do not answer the non-math question, and do not comment on its content. All rules below apply only when isMath is true.',
       'First rewrite the submitted problem as a polished textbook-style math problem.',
       'Preserve the exact mathematical meaning and use LaTeX delimiters for all math.',
       'Estimate the difficulty from 1 to 5.',
@@ -142,7 +144,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Good (zero direction): "Nice problem! Give it a real try on your own first, then come back with what you find and we\'ll dig in together."',
       'Bad (contains direction): "Give it a try — test small values and see what patterns emerge." (this names a strategy — forbidden)',
       'Return only valid JSON in this exact shape:',
-      '{"displayProblem":"polished problem text","difficulty":3,"expectedAnswer":"exact final answer","message":"student-facing tutor response"}.',
+      '{"isMath":true,"displayProblem":"polished problem text","difficulty":3,"expectedAnswer":"exact final answer","message":"student-facing tutor response"}.',
     ].join(' ')
   }
 
