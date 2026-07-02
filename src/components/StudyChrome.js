@@ -37,9 +37,9 @@ export function CenteredPage({ children }) {
   )
 }
 
-// Navy study side panel. When `showVideo` is set it leads with a "how to
-// participate" video placeholder; below it sits a full description of what the
-// study involves. The description avoids em dashes on purpose.
+// Navy study side panel. When `showVideo` is set it leads with the "how to
+// participate" video; below it sits a full description of what the study
+// involves. The description avoids em dashes on purpose.
 export function StudySidePanel({ showVideo = false }) {
   return (
     <aside className="lg:w-[42.857%] bg-primary text-white flex flex-col">
@@ -48,14 +48,16 @@ export function StudySidePanel({ showVideo = false }) {
         <h2 className="font-serif text-2xl text-white mt-2">AI Tutoring Study</h2>
 
         {showVideo && (
-          <div className="mt-5 aspect-video w-full rounded-lg border border-white/15 bg-white/5 flex flex-col items-center justify-center text-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="text-white/80" aria-hidden="true">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </span>
-            <p className="mt-3 text-sm font-medium text-white/85">How to participate</p>
-            <p className="text-xs text-white/50 mt-0.5">Video coming soon</p>
+          <div className="mt-5 aspect-video w-full overflow-hidden rounded-lg border border-white/15 bg-black/20">
+            <video
+              className="h-full w-full object-cover"
+              src="/how-to-participate.mp4"
+              controls
+              playsInline
+              preload="metadata"
+            >
+              Your browser does not support embedded video.
+            </video>
           </div>
         )}
 
