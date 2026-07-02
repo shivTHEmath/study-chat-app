@@ -469,6 +469,7 @@ async function classifyIntent(currentProblem, conversation, studentMessage) {
     const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
       max_completion_tokens: 60,
+      reasoning_effort: 'low',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a precise intent classifier. Output only the requested JSON, nothing else.' },
@@ -530,6 +531,7 @@ async function classifyGeneralInquiry(studentMessage, conversation) {
     const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
       max_completion_tokens: 60,
+      reasoning_effort: low,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a precise, skeptical classifier. Output only the requested JSON, nothing else.' },
