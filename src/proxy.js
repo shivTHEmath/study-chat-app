@@ -51,6 +51,14 @@ export async function proxy(request) {
   if (!user) {
     const consentDone = request.cookies.get('consent_done')?.value === '1'
     const surveyDone = request.cookies.get('survey_done')?.value === '1'
+    const consentDeclined = request.cookies.get('consent_declined')?.value === '1'
+
+    // A participant who declined consent cannot enter the study. Pin them to
+    // the declined page no matter which URL they hit directly. They may still
+    // reopen /consent to change their mind (which clears the decline flag).
+    if (consentDeclined && pathname !== '/consent/declined' && pathname !== '/consent' && !isApi) {
+      return redirect('/consent/declined')
+    }
 
     // Root: send to the right step.
     if (pathname === '/') {
