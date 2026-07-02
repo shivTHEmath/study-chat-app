@@ -643,7 +643,7 @@ async function askTutor(runtimeContext, studentMessage) {
     model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     // Reasoning tokens count against this budget; keep generous headroom so
     // deliberation can never starve the visible message to empty.
-    max_completion_tokens: 6000,
+    max_completion_tokens: 10000,
     reasoning_effort: 'high',
     messages: [
       { role: 'system', content: TUTOR_SYSTEM_PROMPT },

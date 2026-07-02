@@ -220,7 +220,7 @@ async function generateAssessmentItems({ sourceQuestions, grade }) {
   try {
     const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
-      max_completion_tokens: 8000,
+      max_completion_tokens: 10000,
       reasoning_effort: 'high',
       response_format: { type: 'json_object' },
       messages: [
@@ -492,7 +492,7 @@ async function evaluateResponses({ items, responses }) {
   try {
     const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
-      max_completion_tokens: 5000,
+      max_completion_tokens: 10000,
       reasoning_effort: 'high',
       response_format: { type: 'json_object' },
       messages: [
