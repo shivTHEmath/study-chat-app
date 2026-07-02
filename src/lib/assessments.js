@@ -84,7 +84,24 @@ async function fetchOpenAssessment(admin, userId) {
     .limit(1)
     .maybeSingle()
 
-  return data || null
+  if (!data) return null
+
+  // Self-heal: an open assessment must have all its problems. If a prior
+  // generation failed and left it problemless (or short), it's unusable — it
+  // would block new assessments and show an empty test. Delete it and report
+  // "no open assessment" so a fresh, complete one gets built.
+  const { count } = await admin
+    .from('assessment_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('assessment_id', data.id)
+
+  if (Number(count || 0) !== ASSESSMENT_ITEM_COUNT) {
+    console.error(`[assessments] deleting incomplete assessment ${data.id} (${count ?? 0} items)`)
+    await admin.from('assessments').delete().eq('id', data.id)
+    return null
+  }
+
+  return data
 }
 
 async function fetchAssessmentItems(admin, assessmentId, includeAnswers = false) {
@@ -292,12 +309,24 @@ async function createPendingAssessment(admin, userId, participant, now = new Dat
     }
   })
 
-  const { data: items } = await admin
+  const { data: items, error: itemsError } = await admin
     .from('assessment_items')
     .insert(itemRows)
     .select('id, assessment_id, position, prompt, transfer_type, created_at')
 
-  return { assessment, items: items || [] }
+  // If the items failed to insert (or came back short), do NOT leave a
+  // problemless assessment behind — it would block new ones and can't be
+  // submitted. Delete it and report the failure so the caller can reschedule.
+  if (itemsError || !items || items.length !== ASSESSMENT_ITEM_COUNT) {
+    console.error(
+      '[assessments] item insert failed:',
+      itemsError?.message || `expected ${ASSESSMENT_ITEM_COUNT}, got ${items?.length ?? 0}`
+    )
+    await admin.from('assessments').delete().eq('id', assessment.id)
+    return { assessment: null, items: [], unavailableReason: 'items_insert_failed' }
+  }
+
+  return { assessment, items }
 }
 
 // Cheap "is an assessment due right now?" check — no LLM generation, no writes
@@ -355,7 +384,15 @@ async function assessmentGateStatus(admin, userId, participant, now = new Date()
 async function maybeCreateDueAssessment(admin, userId, participant, now = new Date()) {
   const open = await fetchOpenAssessment(admin, userId)
   if (open) {
-    return { assessment: open, items: await fetchAssessmentItems(admin, open.id) }
+    const items = await fetchAssessmentItems(admin, open.id)
+    // A healthy open assessment has all its problems — reuse it.
+    if (items.length === ASSESSMENT_ITEM_COUNT) {
+      return { assessment: open, items }
+    }
+    // Otherwise it's a stuck/empty assessment from an earlier failed generation.
+    // Delete it so we can build a fresh, complete one below.
+    console.error(`[assessments] clearing incomplete open assessment ${open.id} (${items.length} items)`)
+    await admin.from('assessments').delete().eq('id', open.id)
   }
 
   const nextDueAt = await ensureAssessmentSchedule(admin, userId, participant, now)
