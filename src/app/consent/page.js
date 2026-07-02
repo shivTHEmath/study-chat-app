@@ -159,7 +159,7 @@ export default function ConsentPage() {
             </div>
             <Link
               href="/login"
-              className="text-xs text-primary underline underline-offset-2 shrink-0 pt-0.5"
+              className="text-sm font-bold text-primary underline underline-offset-2 shrink-0 pt-0.5"
             >
               {c.header.loginLink}
             </Link>
