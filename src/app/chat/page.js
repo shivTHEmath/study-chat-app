@@ -29,6 +29,45 @@ export default function ChatPage() {
   const [assessmentAvailable, setAssessmentAvailable] = useState(false)
   const [generalMode, setGeneralMode] = useState(false)     // open teaching conversation, no active problem
 
+  // Bug-report feedback modal
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackSending, setFeedbackSending] = useState(false)
+  const [feedbackError, setFeedbackError] = useState('')
+  const [feedbackSent, setFeedbackSent] = useState(false)
+
+  async function submitFeedback() {
+    const msg = feedbackText.trim()
+    if (!msg || feedbackSending) return
+    setFeedbackSending(true)
+    setFeedbackError('')
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setFeedbackError(data.error || 'Could not send. Please try again.')
+        setFeedbackSending(false)
+        return
+      }
+      setFeedbackSent(true)
+      setFeedbackText('')
+    } catch {
+      setFeedbackError('Could not send. Please try again.')
+    } finally {
+      setFeedbackSending(false)
+    }
+  }
+
+  function closeFeedback() {
+    setFeedbackOpen(false)
+    setFeedbackError('')
+    setFeedbackSent(false)
+  }
+
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
   const lastInteractionRef = useRef(nowMs())
@@ -379,6 +418,12 @@ export default function ChatPage() {
           <span className="font-serif text-sm text-ink">AI Tutoring Study</span>
           <div className="flex items-center gap-4">
             <button
+              onClick={() => setFeedbackOpen(true)}
+              className="rounded-md bg-danger/10 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/15 transition-colors"
+            >
+              Report a bug
+            </button>
+            <button
               onClick={startNewProblem}
               disabled={sending || (!problem && messages.length === 0)}
               className="text-xs font-medium text-primary hover:text-primary/80 transition-colors disabled:text-faint disabled:cursor-not-allowed"
@@ -404,6 +449,60 @@ export default function ChatPage() {
           </div>
         </div>
       </header>
+
+      {/* Bug-report modal */}
+      {feedbackOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-4"
+          onClick={closeFeedback}
+        >
+          <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            {feedbackSent ? (
+              <div className="text-center py-2">
+                <p className="font-serif text-lg text-ink mb-1">Thank you</p>
+                <p className="text-sm text-muted mb-6">
+                  Your report has been sent. Thanks for helping improve the study.
+                </p>
+                <button onClick={closeFeedback} className="btn btn-primary h-10 px-5">
+                  Close
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="eyebrow text-danger">Report a bug</p>
+                <h2 className="font-serif text-lg text-ink mt-1 mb-1">Something not working?</h2>
+                <p className="text-sm text-muted mb-4">
+                  Describe what went wrong and we&apos;ll look into it. No need to add your name.
+                </p>
+                <textarea
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  rows={5}
+                  autoFocus
+                  placeholder="What happened? What were you trying to do?"
+                  className="field resize-none w-full"
+                />
+                {feedbackError && <p className="text-sm text-danger mt-2">{feedbackError}</p>}
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    onClick={closeFeedback}
+                    className="btn h-10 px-4 border border-line-strong text-ink"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitFeedback}
+                    disabled={!feedbackText.trim() || feedbackSending}
+                    className="btn btn-primary h-10 px-5 disabled:opacity-50"
+                  >
+                    {feedbackSending ? 'Sending…' : 'Send report'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Paused overlay — blocks the session and stops the idle timer */}
       {paused && (
