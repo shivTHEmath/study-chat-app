@@ -221,7 +221,7 @@ async function generateAssessmentItems({ sourceQuestions, grade }) {
     const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
       max_completion_tokens: 8000,
-      reasoning_effort: 'medium',
+      reasoning_effort: 'high',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You write mathematically correct student assessments. Output only valid JSON.' },
@@ -493,7 +493,7 @@ async function evaluateResponses({ items, responses }) {
     const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
       max_completion_tokens: 5000,
-      reasoning_effort: 'medium',
+      reasoning_effort: 'high',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You grade short math assessment answers. Output only valid JSON.' },

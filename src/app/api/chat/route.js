@@ -644,7 +644,7 @@ async function askTutor(runtimeContext, studentMessage) {
     // Reasoning tokens count against this budget; keep generous headroom so
     // deliberation can never starve the visible message to empty.
     max_completion_tokens: 6000,
-    reasoning_effort: 'medium',
+    reasoning_effort: 'high',
     messages: [
       { role: 'system', content: TUTOR_SYSTEM_PROMPT },
       {
