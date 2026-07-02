@@ -138,18 +138,25 @@ function buildGenerationPrompt({ sourceQuestions, grade }) {
 
 Student grade: ${grade || 'unknown'}.
 
-STYLE — write it like a real school test:
-- Default to short-answer questions: each one should have a single concrete answer — a number, an expression, a set of solutions, a coordinate, etc. ("Solve for x: ...", "Evaluate ...", "Factor ...", "Find the value of ...").
-- Do NOT write "explain", "describe", "why", or "justify" prompts, and do NOT ask the student to write out reasoning or proofs — UNLESS the student's prior questions below are themselves predominantly proof-based or explanation-based. Only then should the test match that style.
+ANSWER FORMAT — this is the most important rule:
+- Almost every problem MUST be short-answer: it has ONE unambiguous, objectively checkable final answer — a number, an expression, a set of solutions, a coordinate, a ratio, etc. Examples of good asks: "Solve for x: 2x = 4", "Evaluate ...", "Factor ...", "Find the value of ...", "What is the slope of ...". Set answerFormat to "short_answer" for these.
+- The point is that grading must be objective: a grader should be able to mark it right or wrong by comparing the student's final answer to the answer key, with zero subjective judgement.
+- Do NOT write "explain", "describe", "why", "justify", or "show your reasoning" prompts. Do NOT write open-ended prompts that could have many acceptable phrasings.
+- The ONLY exception: if the student's prior questions below are themselves genuinely proof-based or explanation-based, you may write matching proof problems — set answerFormat to "proof" for those, and keep them rare. If the source work is ordinary computation/algebra, use ZERO proof problems.
+
+STYLE:
 - No multi-part questions. One ask per problem.
+- Keep every prompt to 3 sentences or fewer.
 
 CONTENT requirements:
 - Create exactly ${ASSESSMENT_ITEM_COUNT} problems.
 - Each problem must be solvable within the student's apparent current knowledge and difficulty level.
 - Prefer creative cross-topic transfer when safe. Use paraphrase next. Use number changes only as a last resort.
-- Run these checks silently for every item: current-knowledge solvable, suitable difficulty, unique solution, mathematical correctness, 3 sentences or fewer.
+- Run these checks silently for every item: current-knowledge solvable, suitable difficulty, UNIQUE unambiguous answer, mathematical correctness, 3 sentences or fewer.
 - Avoid long story problems. Avoid requiring facts not contained in the prompt or ordinary school knowledge.
 - Use the student's prior questions below as the source data.
+
+For expectedAnswer, give the exact final answer only (e.g. "x = 2", "{-3, 3}", "y = 2x + 1"). For rubric, state the acceptable equivalent forms (e.g. "accept 0.5, 1/2, or ½").
 
 Return only JSON with this shape:
 {
@@ -157,8 +164,9 @@ Return only JSON with this shape:
   "items": [
     {
       "prompt": "student-facing problem",
-      "expectedAnswer": "concise answer key",
-      "rubric": "how to judge correctness, including acceptable equivalent forms",
+      "expectedAnswer": "the exact final answer only",
+      "rubric": "acceptable equivalent forms of the answer",
+      "answerFormat": "short_answer|proof",
       "transferType": "cross_topic_transfer|paraphrase|number_change",
       "sourceIndex": 1
     }
@@ -174,9 +182,10 @@ function fallbackItems(sourceQuestions) {
   return Array.from({ length: ASSESSMENT_ITEM_COUNT }, (_, index) => {
     const source = usable[index % usable.length]
     return {
-      prompt: `Solve a similar problem, showing your reasoning: ${source.question}`,
-      expectedAnswer: 'Equivalent to the original problem solution.',
-      rubric: 'Award full credit for a mathematically correct answer with valid reasoning; accept equivalent forms.',
+      prompt: `Solve this problem and give only the final answer: ${source.question}`,
+      expectedAnswer: 'The correct final answer to the original problem.',
+      rubric: 'Mark correct if the final answer matches the original problem\'s solution; accept mathematically equivalent forms.',
+      answerFormat: 'short_answer',
       transferType: 'paraphrase',
       sourceIndex: (index % usable.length) + 1,
     }
@@ -215,6 +224,7 @@ async function generateAssessmentItems({ sourceQuestions, grade }) {
         prompt: item.prompt,
         expectedAnswer: item.expectedAnswer,
         rubric: item.rubric,
+        answerFormat: item.answerFormat === 'proof' ? 'proof' : 'short_answer',
         transferType: ['cross_topic_transfer', 'paraphrase', 'number_change'].includes(
           item.transferType
         )
@@ -274,6 +284,7 @@ async function createPendingAssessment(admin, userId, participant, now = new Dat
       prompt: item.prompt,
       expected_answer: item.expectedAnswer,
       rubric: item.rubric,
+      answer_format: item.answerFormat === 'proof' ? 'proof' : 'short_answer',
       transfer_type: item.transferType,
       source_question: source?.question || null,
       source_response: source?.response || null,
@@ -306,6 +317,39 @@ async function isAssessmentDue(admin, userId, participant, now = new Date()) {
     open: null,
     nextDueAt,
   }
+}
+
+// True if the student has at least one logged question to build a transfer test
+// from. Cheap head-count query; no rows returned.
+async function hasSourceQuestions(admin, userId) {
+  const { count } = await admin
+    .from('questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+
+  return Number(count || 0) > 0
+}
+
+// Boundary-aware gate. An assessment should block the student ONLY when:
+//   • it is due (time elapsed or an open one exists), AND
+//   • it can actually be built (an open assessment exists, or there are prior
+//     questions to generate from).
+// If it's due but there's nothing to build a test from yet, we push the schedule
+// out so the student is never stuck with a due-but-ungenerable assessment.
+// This is called only at problem boundaries (starting/finishing a problem), so a
+// due assessment never interrupts a student mid-problem.
+async function assessmentGateStatus(admin, userId, participant, now = new Date()) {
+  const { due, open, nextDueAt } = await isAssessmentDue(admin, userId, participant, now)
+  if (!due) return { block: false, open: null, nextDueAt }
+  if (open) return { block: true, open, nextDueAt }
+
+  if (await hasSourceQuestions(admin, userId)) {
+    return { block: true, open: null, nextDueAt }
+  }
+
+  // Due but nothing to generate from — reschedule instead of blocking.
+  const rescheduled = await scheduleNextAssessment(admin, userId, now)
+  return { block: false, open: null, nextDueAt: rescheduled }
 }
 
 async function maybeCreateDueAssessment(admin, userId, participant, now = new Date()) {
@@ -369,15 +413,25 @@ function buildEvaluationPrompt({ items, responses }) {
       prompt: item.prompt,
       expected_answer: item.expected_answer,
       rubric: item.rubric,
+      answer_format: item.answer_format || 'short_answer',
       student_answer: response?.answer || '',
     }
   })
 
-  return `Evaluate this assessment. For each item, assign correctness from 0 to 1.
-Use the rubric and accept equivalent mathematical forms. Return only JSON:
+  return `Grade this math assessment objectively. Each item has an answer_format.
+
+For answer_format = "short_answer":
+- Grade STRICTLY right or wrong. correctness MUST be exactly 1 or exactly 0. Never award partial credit.
+- Give 1 only if the student's FINAL answer equals the expected_answer, allowing mathematically equivalent forms (e.g. 1/2 = 0.5 = 0.50, x=2 same as "2", {-3,3} same as "3, -3", unsimplified equivalents). Otherwise give 0.
+- Judge ONLY the final answer. Ignore wording, presentation, and whether they showed work. A blank or missing answer is 0.
+
+For answer_format = "proof":
+- Use the rubric; correctness may be any value from 0 to 1.
+
+Return only JSON:
 {
   "results": [
-    { "itemId": "uuid", "correctness": 0.75, "feedback": "brief evaluator note" }
+    { "itemId": "uuid", "correctness": 1, "feedback": "brief note" }
   ]
 }
 
@@ -407,9 +461,16 @@ async function evaluateResponses({ items, responses }) {
 
     return responses.map((studentResponse) => {
       const result = results.find((r) => r.itemId === studentResponse.itemId)
+      const item = items.find((i) => i.id === studentResponse.itemId)
+      let correctness = normalizeCorrectness(result?.correctness)
+      // Short-answer items are strictly binary — snap to 0 or 1 so grading has
+      // zero partial-credit subjectivity, even if the model returned a fraction.
+      if ((item?.answer_format || 'short_answer') !== 'proof') {
+        correctness = correctness >= 0.5 ? 1 : 0
+      }
       return {
         itemId: studentResponse.itemId,
-        correctness: normalizeCorrectness(result?.correctness),
+        correctness,
         feedback: result?.feedback || '',
       }
     })
@@ -544,9 +605,11 @@ async function submitAssessment(
 export {
   ASSESSMENT_DURATION_MINUTES,
   ASSESSMENT_ITEM_COUNT,
+  assessmentGateStatus,
   expireAssessment,
   fetchAssessmentItems,
   fetchOpenAssessment,
+  hasSourceQuestions,
   isAssessmentDue,
   maybeCreateDueAssessment,
   publicAssessment,

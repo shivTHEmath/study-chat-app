@@ -1,9 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
+  assessmentGateStatus,
   expireAssessment,
   fetchAssessmentItems,
-  isAssessmentDue,
   publicAssessment,
 } from '@/lib/assessments'
 
@@ -43,9 +43,11 @@ export async function GET() {
     return Response.json({ error: 'Participant record not found.' }, { status: 404 })
   }
 
-  // Cheap due-check only — never generate here. A due assessment is generated
-  // lazily when the student opens it (POST /api/assessments/start).
-  const result = await isAssessmentDue(admin, user.id, participant)
+  // Cheap, source-aware due-check only — never generate here. A due assessment
+  // is generated lazily when the student opens it (POST /api/assessments/start).
+  // Using the boundary gate means we won't advertise an assessment that can't
+  // actually be built yet (no prior questions).
+  const result = await assessmentGateStatus(admin, user.id, participant)
   let open = result.open
   let items = []
 
@@ -55,7 +57,7 @@ export async function GET() {
     items = open.status === 'in_progress' ? await fetchAssessmentItems(admin, open.id) : []
   }
 
-  const available = result.due && open?.status !== 'expired'
+  const available = result.block && open?.status !== 'expired'
 
   return Response.json({
     assessmentAvailable: Boolean(available),

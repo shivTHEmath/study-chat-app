@@ -10,7 +10,7 @@ import {
 } from '@/lib/tutor/runtime'
 import { metacognitiveTargetForProblem } from '@/lib/tutor/metacognitivePrompting'
 import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
-import { isAssessmentDue } from '@/lib/assessments'
+import { assessmentGateStatus } from '@/lib/assessments'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -52,24 +52,11 @@ export async function POST(request) {
       )
     }
 
-    // Assessment gate: once an assessment is due, the student must complete it
-    // before continuing the conversation. Enforced server-side so it can't be
-    // bypassed by the client. The message is not processed or logged.
-    const assessmentGate = await isAssessmentDue(admin, user.id, {
-      next_assessment_due_at: participantCounters.next_assessment_due_at,
-    })
-    if (assessmentGate.due) {
-      return Response.json(
-        { assessmentRequired: true, assessmentAvailable: true },
-        { status: 409 }
-      )
-    }
-
+    // Resolve the phase first. For 'auto', classify new-problem vs follow-up so
+    // the assessment gate below can act on the *resolved* phase.
     let phase = body.phase || 'follow_up'
+    let resolvedPhase = phase
 
-    // 'auto' — the client has an active problem but doesn't know whether this
-    // message is a new problem or a follow-up. Classify it; if we're not
-    // confident (>80%), bounce back and let the UI ask the student.
     if (phase === 'auto') {
       const { intent, confidence } = await classifyIntent(
         body.problem,
@@ -77,26 +64,39 @@ export async function POST(request) {
         body.studentMessage
       )
       if (confidence < 0.8) {
+        // Not confident — bounce back and let the UI ask the student. Nothing is
+        // gated or processed on this turn.
         return Response.json({
           needsIntentConfirmation: true,
           intentGuess: intent,
           intentConfidence: confidence,
         })
       }
-      if (intent === 'new_problem') {
-        // The student's message IS the new problem — override body.problem so
-        // the new-problem handler treats it as the problem text, not the old one.
-        return await handleNewProblem({
-          admin,
-          body: { ...body, problem: body.studentMessage },
-          condition, grade, participantCounters, userId: user.id, intent: 'new_problem',
-        })
-      }
-      return await handleFollowUp({ admin, body, condition, grade, participantCounters, userId: user.id, intent: 'follow_up' })
+      resolvedPhase = intent === 'new_problem' ? 'new_problem' : 'follow_up'
     }
 
-    if (phase === 'new_problem') {
-      return await handleNewProblem({ admin, body, condition, grade, participantCounters, userId: user.id, intent: 'new_problem' })
+    // Assessment gate — enforced ONLY at a problem boundary (i.e. when the
+    // student is about to start a new problem). Mid-problem follow-ups are never
+    // interrupted. This gives a natural, "between problems" hand-off instead of
+    // bouncing a message mid-conversation. Blocks only when a test is actually
+    // buildable (see assessmentGateStatus).
+    if (resolvedPhase === 'new_problem') {
+      const gate = await assessmentGateStatus(admin, user.id, {
+        next_assessment_due_at: participantCounters.next_assessment_due_at,
+      })
+      if (gate.block) {
+        return Response.json(
+          { assessmentRequired: true, assessmentAvailable: true },
+          { status: 409 }
+        )
+      }
+    }
+
+    if (resolvedPhase === 'new_problem') {
+      // For an auto-detected new problem, the student's message IS the new
+      // problem — override body.problem so the handler uses it as the problem text.
+      const npBody = phase === 'auto' ? { ...body, problem: body.studentMessage } : body
+      return await handleNewProblem({ admin, body: npBody, condition, grade, participantCounters, userId: user.id, intent: 'new_problem' })
     }
 
     return await handleFollowUp({ admin, body, condition, grade, participantCounters, userId: user.id, intent: 'follow_up' })
@@ -342,8 +342,16 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   //   • increment problems_completed on the participant row
   //   • reset per-problem metacognitive_prompt_count is implicit (the next
   //     attempt will start a fresh row); we just bump the participant counter.
+  // Smooth hand-off: if the student just finished a problem AND an assessment is
+  // due (and buildable), tell the client so it surfaces the banner as a natural
+  // next step — instead of bouncing their next message mid-flow.
+  let assessmentAvailable = false
   if (parsed.isProblemComplete && attempt?.id) {
     await completeProblem(admin, userId, participantCounters.problems_completed, attempt.id)
+    const gate = await assessmentGateStatus(admin, userId, {
+      next_assessment_due_at: participantCounters.next_assessment_due_at,
+    })
+    assessmentAvailable = gate.block
   }
 
   await logQuestion(admin, userId, {
@@ -360,6 +368,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     attemptId: attempt?.id || null,
     displayProblem,
     isProblemComplete: parsed.isProblemComplete,
+    assessmentAvailable,
     responseType: parsed.responseType,
     hintAllowed: hintState.hintAllowed,
     hintsExhausted: hintState.hintsExhausted,
