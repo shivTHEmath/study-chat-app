@@ -945,25 +945,25 @@ function extractText(response) {
 // Falls back to the old wrapper-JSON format if the model didn't follow instructions.
 function parseFollowUpResponse(text) {
   const raw = String(text || '').trim()
-  const lines = raw.split('\n')
 
-  // Primary path: new format — prose + compact flags JSON as the last line
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim()
-    if (!line.startsWith('{')) continue
+  // Primary path: new format — prose followed by a compact flags JSON object.
+  // Some models (e.g. gpt-5.4-mini) glue the "{" onto the end of the last
+  // prose line instead of starting a fresh line, so scan for a trailing
+  // {...} object anywhere at the end of the string rather than requiring it
+  // to be its own line.
+  const tailMatch = raw.match(/\{[^{}]*"isProblemComplete"[^{}]*\}\s*$/)
+  if (tailMatch) {
     try {
-      const flags = JSON.parse(line)
-      if ('isProblemComplete' in flags) {
-        const message = lines.slice(0, i).join('\n').trim() || raw
-        return {
-          message,
-          isProblemComplete: Boolean(flags.isProblemComplete),
-          hintGiven: Boolean(flags.hintGiven),
-          metacognitivePromptIncluded: Boolean(flags.metacognitivePromptIncluded),
-          responseType: typeof flags.responseType === 'string' ? flags.responseType : null,
-          mcpAnswered: Boolean(flags.mcpAnswered),
-          mcpDropped: Boolean(flags.mcpDropped),
-        }
+      const flags = JSON.parse(tailMatch[0])
+      const message = raw.slice(0, tailMatch.index).trim() || raw
+      return {
+        message,
+        isProblemComplete: Boolean(flags.isProblemComplete),
+        hintGiven: Boolean(flags.hintGiven),
+        metacognitivePromptIncluded: Boolean(flags.metacognitivePromptIncluded),
+        responseType: typeof flags.responseType === 'string' ? flags.responseType : null,
+        mcpAnswered: Boolean(flags.mcpAnswered),
+        mcpDropped: Boolean(flags.mcpDropped),
       }
     } catch {}
   }
