@@ -611,7 +611,7 @@ async function askGeneralTutor(context, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     max_completion_tokens: 1200,
-    reasoning_effort: 'high',
+    reasoning_effort: 'xhigh',
     messages: [
       { role: 'system', content: GENERAL_INQUIRY_SYSTEM_PROMPT },
       {
@@ -634,7 +634,7 @@ async function askTutor(runtimeContext, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     max_completion_tokens: 3000,
-    reasoning_effort: 'high',
+    reasoning_effort: 'xhigh',
     messages: [
       { role: 'system', content: TUTOR_SYSTEM_PROMPT },
       {
