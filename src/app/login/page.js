@@ -36,7 +36,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthSplitLayout>
+    <AuthSplitLayout showVideo>
       <Masthead subtitle="Participant sign in" />
 
       <div className="card p-7">
