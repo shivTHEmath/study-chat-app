@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { TUTOR_SYSTEM_PROMPT, GENERAL_INQUIRY_SYSTEM_PROMPT } from '@/lib/tutor/systemPrompt'
@@ -12,9 +12,13 @@ import { metacognitiveTargetForProblem } from '@/lib/tutor/metacognitivePromptin
 import { resolveEngagementTick } from '@/lib/tutor/engagementClock'
 import { assessmentGateStatus } from '@/lib/assessments'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+// Lazy singleton: the OpenAI SDK throws at construction when the key is
+// missing, which would break the build during page-data collection.
+let _openai = null
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _openai
+}
 
 export async function POST(request) {
   try {
@@ -36,8 +40,8 @@ export async function POST(request) {
       return Response.json({ error: 'You must be logged in to chat.' }, { status: 401 })
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return Response.json({ error: 'Anthropic API key is not configured.' }, { status: 500 })
+    if (!process.env.OPENAI_API_KEY) {
+      return Response.json({ error: 'OpenAI API key is not configured.' }, { status: 500 })
     }
 
     const admin = createAdminClient()
@@ -435,7 +439,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 // Classifies whether an incoming message starts a NEW problem or is a FOLLOW-UP
 // to the active one. Uses a fast, cheap model. Returns { intent, confidence }.
 // On any failure, returns confidence 0 so the UI asks the student to choose.
-const CLASSIFIER_MODEL = process.env.ANTHROPIC_CLASSIFIER_MODEL || 'claude-haiku-4-5-20251001'
+const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.4-mini'
 
 async function classifyIntent(currentProblem, conversation, studentMessage) {
   try {
@@ -462,11 +466,14 @@ async function classifyIntent(currentProblem, conversation, studentMessage) {
       .filter(Boolean)
       .join('\n')
 
-    const resp = await anthropic.messages.create({
+    const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_tokens: 60,
-      system: 'You are a precise intent classifier. Output only the requested JSON, nothing else.',
-      messages: [{ role: 'user', content: prompt }],
+      max_completion_tokens: 60,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You are a precise intent classifier. Output only the requested JSON, nothing else.' },
+        { role: 'user', content: prompt },
+      ],
     })
 
     const parsed = tryParseJson(stripCodeFence(extractText(resp))) || {}
@@ -520,11 +527,14 @@ async function classifyGeneralInquiry(studentMessage, conversation) {
       .filter(Boolean)
       .join('\n')
 
-    const resp = await anthropic.messages.create({
+    const resp = await getOpenAI().chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_tokens: 60,
-      system: 'You are a precise, skeptical classifier. Output only the requested JSON, nothing else.',
-      messages: [{ role: 'user', content: prompt }],
+      max_completion_tokens: 60,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You are a precise, skeptical classifier. Output only the requested JSON, nothing else.' },
+        { role: 'user', content: prompt },
+      ],
     })
 
     const parsed = tryParseJson(stripCodeFence(extractText(resp))) || {}
@@ -598,11 +608,11 @@ async function handleGeneralInquiry({ admin, body, grade, participantCounters, u
 }
 
 async function askGeneralTutor(context, studentMessage) {
-  const response = await anthropic.messages.create({
-    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-    max_tokens: 1200,
-    system: GENERAL_INQUIRY_SYSTEM_PROMPT,
+  const response = await getOpenAI().chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    max_completion_tokens: 1200,
     messages: [
+      { role: 'system', content: GENERAL_INQUIRY_SYSTEM_PROMPT },
       {
         role: 'user',
         content: `${context}\n\nStudent message:\n${studentMessage}`,
@@ -613,18 +623,18 @@ async function askGeneralTutor(context, studentMessage) {
   return {
     text: extractText(response),
     usage: {
-      input: response.usage?.input_tokens ?? null,
-      output: response.usage?.output_tokens ?? null,
+      input: response.usage?.prompt_tokens ?? null,
+      output: response.usage?.completion_tokens ?? null,
     },
   }
 }
 
 async function askTutor(runtimeContext, studentMessage) {
-  const response = await anthropic.messages.create({
-    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-    max_tokens: 3000,
-    system: TUTOR_SYSTEM_PROMPT,
+  const response = await getOpenAI().chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    max_completion_tokens: 3000,
     messages: [
+      { role: 'system', content: TUTOR_SYSTEM_PROMPT },
       {
         role: 'user',
         content: `${runtimeContext}\n\nStudent message:\n${studentMessage}`,
@@ -635,8 +645,8 @@ async function askTutor(runtimeContext, studentMessage) {
   return {
     text: extractText(response),
     usage: {
-      input: response.usage?.input_tokens ?? null,
-      output: response.usage?.output_tokens ?? null,
+      input: response.usage?.prompt_tokens ?? null,
+      output: response.usage?.completion_tokens ?? null,
     },
   }
 }
@@ -923,11 +933,7 @@ async function logQuestion(admin, userId, { question, response, studentMessage, 
 }
 
 function extractText(response) {
-  return response.content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n')
-    .trim()
+  return (response.choices?.[0]?.message?.content ?? '').trim()
 }
 
 // Parses the follow-up response format:

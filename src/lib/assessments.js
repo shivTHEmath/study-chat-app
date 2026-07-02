@@ -1,16 +1,20 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
 const ASSESSMENT_INTERVAL_MS = 2 * 60 * 60 * 1000
 const ASSESSMENT_DURATION_MINUTES = 30
 const ASSESSMENT_ITEM_COUNT = 10
 const ASSESSMENT_MODEL =
-  process.env.ANTHROPIC_ASSESSMENT_MODEL ||
-  process.env.ANTHROPIC_MODEL ||
-  'claude-sonnet-4-6'
+  process.env.OPENAI_ASSESSMENT_MODEL ||
+  process.env.OPENAI_MODEL ||
+  'gpt-5.4-mini'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+// Lazy singleton: the OpenAI SDK throws at construction when the key is
+// missing, which would break the build during page-data collection.
+let _openai = null
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _openai
+}
 
 function addMs(date, ms) {
   return new Date(date.getTime() + ms)
@@ -21,11 +25,7 @@ function addMinutes(date, minutes) {
 }
 
 function extractText(response) {
-  return response.content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n')
-    .trim()
+  return (response.choices?.[0]?.message?.content ?? '').trim()
 }
 
 function stripCodeFence(text) {
@@ -210,19 +210,22 @@ function fallbackItems(sourceQuestions) {
 }
 
 async function generateAssessmentItems({ sourceQuestions, grade }) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return {
-      strategySummary: 'Fallback paraphrases generated because Anthropic is not configured.',
+      strategySummary: 'Fallback paraphrases generated because OpenAI is not configured.',
       items: fallbackItems(sourceQuestions),
     }
   }
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
-      max_tokens: 5000,
-      system: 'You write mathematically correct student assessments. Output only valid JSON.',
-      messages: [{ role: 'user', content: buildGenerationPrompt({ sourceQuestions, grade }) }],
+      max_completion_tokens: 5000,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You write mathematically correct student assessments. Output only valid JSON.' },
+        { role: 'user', content: buildGenerationPrompt({ sourceQuestions, grade }) },
+      ],
     })
 
     const parsed = safeJsonParse(extractText(response))
@@ -477,20 +480,23 @@ ${JSON.stringify(payload, null, 2)}`
 }
 
 async function evaluateResponses({ items, responses }) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return responses.map((response) => ({
       itemId: response.itemId,
       correctness: 0,
-      feedback: 'Not evaluated because Anthropic is not configured.',
+      feedback: 'Not evaluated because OpenAI is not configured.',
     }))
   }
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getOpenAI().chat.completions.create({
       model: ASSESSMENT_MODEL,
-      max_tokens: 3000,
-      system: 'You grade short math assessment answers. Output only valid JSON.',
-      messages: [{ role: 'user', content: buildEvaluationPrompt({ items, responses }) }],
+      max_completion_tokens: 3000,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You grade short math assessment answers. Output only valid JSON.' },
+        { role: 'user', content: buildEvaluationPrompt({ items, responses }) },
+      ],
     })
 
     const parsed = safeJsonParse(extractText(response))
