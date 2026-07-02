@@ -17,9 +17,16 @@ export default function VideoPage() {
           tutoring tool and what to expect during the study.
         </p>
 
-        {/* Video placeholder — replace with the real embed when available */}
-        <div className="w-full aspect-video bg-paper border border-line rounded-lg flex items-center justify-center mb-6 text-sm text-faint">
-          Video coming soon
+        <div className="w-full aspect-video overflow-hidden bg-black/5 border border-line rounded-lg mb-6">
+          <video
+            className="h-full w-full object-cover"
+            src="/how-to-participate.mp4"
+            controls
+            playsInline
+            preload="metadata"
+          >
+            Your browser does not support embedded video.
+          </video>
         </div>
 
         <button
