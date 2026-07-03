@@ -10,7 +10,7 @@ export const content = {
       loginLink: 'Returning participant? Log in',
     },
     studyTitle:
-      'The Effect of AI Tutor Design Parameters on Independent Reasoning Capacity in Middle School Students',
+      'The Effect of AI Tutor Design Parameters on Independent Reasoning Capacity in Students',
     pi: 'Principal Investigator: Shivsai Sharda — Non-Trivial Research Fellowship',
     contact: 'Contact: shivsai1811@gmail.com · (408) 872-2032',
     sections: [
@@ -111,7 +111,7 @@ export const content = {
       loginLink: 'पहले से भाग ले रहे हैं? लॉग इन करें',
     },
     studyTitle:
-      'मिडिल स्कूल के छात्रों में स्वतंत्र तर्क क्षमता पर AI ट्यूटर के डिज़ाइन मापदंडों का प्रभाव',
+      'छात्रों में स्वतंत्र तर्क क्षमता पर AI ट्यूटर के डिज़ाइन मापदंडों का प्रभाव',
     pi: 'मुख्य शोधकर्ता: शिवसाई शर्दा — Non-Trivial Research Fellowship',
     contact: 'संपर्क: shivsai1811@gmail.com · (408) 872-2032',
     sections: [
@@ -212,7 +212,7 @@ export const content = {
       loginLink: 'आधीच सहभागी आहात? लॉग इन करा',
     },
     studyTitle:
-      'मिडल स्कूलच्या विद्यार्थ्यांमध्ये स्वतंत्र तर्क क्षमतेवर AI ट्यूटरच्या डिझाइन मापदंडांचा प्रभाव',
+      'विद्यार्थ्यांमध्ये स्वतंत्र तर्क क्षमतेवर AI ट्यूटरच्या डिझाइन मापदंडांचा प्रभाव',
     pi: 'मुख्य संशोधक: शिवसाई शर्दा — Non-Trivial Research Fellowship',
     contact: 'संपर्क: shivsai1811@gmail.com · (408) 872-2032',
     sections: [
