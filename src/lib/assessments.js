@@ -125,10 +125,20 @@ async function fetchAssessmentItems(admin, assessmentId, includeAnswers = false)
   return data || []
 }
 
-// Sets the engagement threshold at which the next assessment comes due: one
-// full interval of engaged time past wherever the student is now.
+// Sets the engagement threshold at which the next assessment comes due.
+// Thresholds are a FIXED LADDER of clean multiples of the interval — 7200,
+// 14400, 21600, ... — anchored at 0 engaged seconds, not "current + interval".
+// This snaps forward to the next rung on the ladder even if the student
+// overshot the previous threshold (the gate is only checked at problem
+// boundaries, so a long problem can carry them past it) — e.g. crossing 7200
+// while at 7300 still schedules the next assessment at exactly 14400, not
+// 14500. If a single boundary-free stretch overshoots by more than one whole
+// interval, only the next rung is scheduled — a skipped interval is not
+// retroactively assessed.
 async function scheduleNextAssessment(admin, userId, cumulativeEngagedSeconds = 0) {
-  const nextDueSeconds = Number(cumulativeEngagedSeconds || 0) + ASSESSMENT_INTERVAL_SECONDS
+  const engaged = Number(cumulativeEngagedSeconds || 0)
+  const nextDueSeconds =
+    (Math.floor(engaged / ASSESSMENT_INTERVAL_SECONDS) + 1) * ASSESSMENT_INTERVAL_SECONDS
   await admin
     .from('participants')
     .update({ next_assessment_due_seconds: nextDueSeconds })
