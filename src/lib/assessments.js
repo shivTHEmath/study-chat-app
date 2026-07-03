@@ -149,6 +149,7 @@ async function fetchSourceQuestions(admin, userId) {
     .from('questions')
     .select('question, response, asked_at')
     .eq('user_id', userId)
+    .eq('phase', 'new_problem')
     .order('asked_at', { ascending: true })
 
   return (data || []).filter((row) => row.question && row.question.trim())
@@ -418,13 +419,17 @@ async function isAssessmentDue(admin, userId, participant) {
   }
 }
 
-// True if the student has at least one logged question to build a transfer test
-// from. Cheap head-count query; no rows returned.
+// True if the student has at least one genuine tutored problem (phase =
+// new_problem) to build a transfer test from. General-inquiry exchanges and
+// declined non-math requests don't count — they aren't problems the student
+// worked through, so they shouldn't seed assessment questions. Cheap
+// head-count query; no rows returned.
 async function hasSourceQuestions(admin, userId) {
   const { count } = await admin
     .from('questions')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
+    .eq('phase', 'new_problem')
 
   return Number(count || 0) > 0
 }
