@@ -43,7 +43,7 @@ export async function POST(request) {
     selfRatedDifficulty: result.selfRatedDifficulty,
     calibrationError: result.calibrationError,
     submittedLate: result.submittedLate,
-    nextDueAt: result.nextDueAt,
+    nextDueSeconds: result.nextDueSeconds,
     responses: result.responses,
   })
 }

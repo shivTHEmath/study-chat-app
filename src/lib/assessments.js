@@ -1,6 +1,8 @@
 import OpenAI from 'openai'
 
-const ASSESSMENT_INTERVAL_MS = 2 * 60 * 60 * 1000
+// Assessments recur every 7200 seconds (2 hours) of ENGAGEMENT — i.e. accrued
+// cumulative_engaged_seconds — not wall-clock time. Overridable for testing.
+const ASSESSMENT_INTERVAL_SECONDS = Number(process.env.ASSESSMENT_INTERVAL_SECONDS) || 7200
 const ASSESSMENT_DURATION_MINUTES = 30
 const ASSESSMENT_ITEM_COUNT = 10
 const ASSESSMENT_MODEL =
@@ -16,8 +18,13 @@ function getOpenAI() {
   return _openai
 }
 
-function addMs(date, ms) {
-  return new Date(date.getTime() + ms)
+async function currentEngagedSeconds(admin, userId) {
+  const { data } = await admin
+    .from('participants')
+    .select('cumulative_engaged_seconds')
+    .eq('user_id', userId)
+    .maybeSingle()
+  return Number(data?.cumulative_engaged_seconds || 0)
 }
 
 function addMinutes(date, minutes) {
@@ -118,19 +125,23 @@ async function fetchAssessmentItems(admin, assessmentId, includeAnswers = false)
   return data || []
 }
 
-async function scheduleNextAssessment(admin, userId, now = new Date()) {
-  const nextDueAt = addMs(now, ASSESSMENT_INTERVAL_MS).toISOString()
+// Sets the engagement threshold at which the next assessment comes due: one
+// full interval of engaged time past wherever the student is now.
+async function scheduleNextAssessment(admin, userId, cumulativeEngagedSeconds = 0) {
+  const nextDueSeconds = Number(cumulativeEngagedSeconds || 0) + ASSESSMENT_INTERVAL_SECONDS
   await admin
     .from('participants')
-    .update({ next_assessment_due_at: nextDueAt })
+    .update({ next_assessment_due_seconds: nextDueSeconds })
     .eq('user_id', userId)
 
-  return nextDueAt
+  return nextDueSeconds
 }
 
-async function ensureAssessmentSchedule(admin, userId, participant, now = new Date()) {
-  if (participant?.next_assessment_due_at) return participant.next_assessment_due_at
-  return scheduleNextAssessment(admin, userId, now)
+async function ensureAssessmentSchedule(admin, userId, participant) {
+  if (participant?.next_assessment_due_seconds != null) {
+    return Number(participant.next_assessment_due_seconds)
+  }
+  return scheduleNextAssessment(admin, userId, participant?.cumulative_engaged_seconds)
 }
 
 async function fetchSourceQuestions(admin, userId) {
@@ -319,8 +330,10 @@ async function createPendingAssessment(admin, userId, participant, now = new Dat
   if (sourceQuestions.length === 0) {
     // Nothing to build a transfer test from yet — skip this cycle instead of
     // leaving the student permanently "due" (which would block the chat).
-    const nextDueAt = await scheduleNextAssessment(admin, userId, now)
-    return { assessment: null, items: [], unavailableReason: 'no_source_questions', nextDueAt }
+    const nextDueSeconds = await scheduleNextAssessment(
+      admin, userId, participant?.cumulative_engaged_seconds
+    )
+    return { assessment: null, items: [], unavailableReason: 'no_source_questions', nextDueSeconds }
   }
 
   const generated = await generateAssessmentItems({
@@ -386,20 +399,22 @@ async function createPendingAssessment(admin, userId, participant, now = new Dat
 
 // Cheap "is an assessment due right now?" check — no LLM generation, no writes
 // beyond lazily seeding the schedule. Use this on hot paths (chat turns, status
-// polling) to decide whether to surface the banner. Actual generation of the 10
-// problems is deferred to startAssessment(), which only runs when the student
-// opens the assessment.
-async function isAssessmentDue(admin, userId, participant, now = new Date()) {
+// polling) to decide whether to surface the banner. Due-ness is measured against
+// ENGAGEMENT: the student must have accrued cumulative_engaged_seconds up to the
+// next_assessment_due_seconds threshold. Actual generation of the 10 problems is
+// deferred to startAssessment(), which only runs when the student opens it.
+async function isAssessmentDue(admin, userId, participant) {
   const open = await fetchOpenAssessment(admin, userId)
   if (open) {
-    return { due: true, open, nextDueAt: participant?.next_assessment_due_at ?? null }
+    return { due: true, open, nextDueSeconds: participant?.next_assessment_due_seconds ?? null }
   }
 
-  const nextDueAt = await ensureAssessmentSchedule(admin, userId, participant, now)
+  const nextDueSeconds = await ensureAssessmentSchedule(admin, userId, participant)
+  const engaged = Number(participant?.cumulative_engaged_seconds || 0)
   return {
-    due: new Date(nextDueAt).getTime() <= now.getTime(),
+    due: engaged >= nextDueSeconds,
     open: null,
-    nextDueAt,
+    nextDueSeconds,
   }
 }
 
@@ -415,25 +430,25 @@ async function hasSourceQuestions(admin, userId) {
 }
 
 // Boundary-aware gate. An assessment should block the student ONLY when:
-//   • it is due (time elapsed or an open one exists), AND
+//   • it is due (enough engaged time accrued, or an open one exists), AND
 //   • it can actually be built (an open assessment exists, or there are prior
 //     questions to generate from).
 // If it's due but there's nothing to build a test from yet, we push the schedule
 // out so the student is never stuck with a due-but-ungenerable assessment.
 // This is called only at problem boundaries (starting/finishing a problem), so a
 // due assessment never interrupts a student mid-problem.
-async function assessmentGateStatus(admin, userId, participant, now = new Date()) {
-  const { due, open, nextDueAt } = await isAssessmentDue(admin, userId, participant, now)
-  if (!due) return { block: false, open: null, nextDueAt }
-  if (open) return { block: true, open, nextDueAt }
+async function assessmentGateStatus(admin, userId, participant) {
+  const { due, open, nextDueSeconds } = await isAssessmentDue(admin, userId, participant)
+  if (!due) return { block: false, open: null, nextDueSeconds }
+  if (open) return { block: true, open, nextDueSeconds }
 
   if (await hasSourceQuestions(admin, userId)) {
-    return { block: true, open: null, nextDueAt }
+    return { block: true, open: null, nextDueSeconds }
   }
 
   // Due but nothing to generate from — reschedule instead of blocking.
-  const rescheduled = await scheduleNextAssessment(admin, userId, now)
-  return { block: false, open: null, nextDueAt: rescheduled }
+  const rescheduled = await scheduleNextAssessment(admin, userId, participant?.cumulative_engaged_seconds)
+  return { block: false, open: null, nextDueSeconds: rescheduled }
 }
 
 async function maybeCreateDueAssessment(admin, userId, participant, now = new Date()) {
@@ -450,9 +465,10 @@ async function maybeCreateDueAssessment(admin, userId, participant, now = new Da
     await admin.from('assessments').delete().eq('id', open.id)
   }
 
-  const nextDueAt = await ensureAssessmentSchedule(admin, userId, participant, now)
-  if (new Date(nextDueAt).getTime() > now.getTime()) {
-    return { assessment: null, items: [], nextDueAt }
+  const nextDueSeconds = await ensureAssessmentSchedule(admin, userId, participant)
+  const engaged = Number(participant?.cumulative_engaged_seconds || 0)
+  if (engaged < nextDueSeconds) {
+    return { assessment: null, items: [], nextDueSeconds }
   }
 
   return createPendingAssessment(admin, userId, participant, now)
@@ -493,7 +509,9 @@ async function expireAssessment(admin, assessment, now = new Date()) {
     .select('*')
     .single()
 
-  await scheduleNextAssessment(admin, assessment.user_id, now)
+  await scheduleNextAssessment(
+    admin, assessment.user_id, await currentEngagedSeconds(admin, assessment.user_id)
+  )
   return data || { ...assessment, status: 'expired', completed_at: nowIso }
 }
 
@@ -679,7 +697,9 @@ async function submitAssessment(
     .select('*')
     .single()
 
-  const nextDueAt = await scheduleNextAssessment(admin, userId, now)
+  const nextDueSeconds = await scheduleNextAssessment(
+    admin, userId, await currentEngagedSeconds(admin, userId)
+  )
 
   return {
     assessment: updated || assessment,
@@ -689,7 +709,7 @@ async function submitAssessment(
     selfRatedDifficulty,
     calibrationError,
     submittedLate,
-    nextDueAt,
+    nextDueSeconds,
     responses: responseRows.map((row) => ({
       itemId: row.item_id,
       correctness: row.correctness,

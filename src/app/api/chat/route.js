@@ -95,7 +95,8 @@ export async function POST(request) {
     // buildable (see assessmentGateStatus).
     if (resolvedPhase === 'new_problem') {
       const gate = await assessmentGateStatus(admin, user.id, {
-        next_assessment_due_at: participantCounters.next_assessment_due_at,
+        cumulative_engaged_seconds: participantCounters.cumulative_engaged_seconds,
+        next_assessment_due_seconds: participantCounters.next_assessment_due_seconds,
       })
       if (gate.block) {
         return Response.json(
@@ -415,7 +416,8 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
   if (parsed.isProblemComplete && attempt?.id && !attempt.completed_at) {
     await completeProblem(admin, userId, participantCounters.problems_completed, attempt.id)
     const gate = await assessmentGateStatus(admin, userId, {
-      next_assessment_due_at: participantCounters.next_assessment_due_at,
+      cumulative_engaged_seconds: newCumulativeSeconds,
+      next_assessment_due_seconds: participantCounters.next_assessment_due_seconds,
     })
     assessmentAvailable = gate.block
   }
@@ -734,7 +736,7 @@ async function loadParticipantCounters(admin, userId) {
     .select(
       'total_metacognitive_prompts_given, problems_completed, ' +
       'cumulative_engaged_seconds, last_activity_at, clock_paused_at, pending_checkin_type, ' +
-      'next_assessment_due_at'
+      'next_assessment_due_seconds'
     )
     .eq('user_id', userId)
     .maybeSingle()
@@ -750,7 +752,8 @@ async function loadParticipantCounters(admin, userId) {
     last_activity_at: data?.last_activity_at ?? null,
     clock_paused_at: data?.clock_paused_at ?? null,
     pending_checkin_type: data?.pending_checkin_type ?? null,
-    next_assessment_due_at: data?.next_assessment_due_at ?? null,
+    next_assessment_due_seconds:
+      data?.next_assessment_due_seconds != null ? Number(data.next_assessment_due_seconds) : null,
   }
 }
 

@@ -11,7 +11,7 @@ async function loadParticipant(admin, userId) {
   const [{ data: participant }, { data: survey }] = await Promise.all([
     admin
       .from('participants')
-      .select('user_id, next_assessment_due_at')
+      .select('user_id, cumulative_engaged_seconds, next_assessment_due_seconds')
       .eq('user_id', userId)
       .single(),
     admin
@@ -61,7 +61,8 @@ export async function GET() {
 
   return Response.json({
     assessmentAvailable: Boolean(available),
-    nextDueAt: result.nextDueAt || participant.next_assessment_due_at,
+    nextDueSeconds: result.nextDueSeconds ?? participant.next_assessment_due_seconds,
+    engagedSeconds: participant.cumulative_engaged_seconds,
     assessment:
       open && open.status !== 'expired' ? publicAssessment(open, items) : null,
   })

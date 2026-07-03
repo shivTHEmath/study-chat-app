@@ -11,7 +11,7 @@ async function loadParticipant(admin, userId) {
   const [{ data: participant }, { data: survey }] = await Promise.all([
     admin
       .from('participants')
-      .select('user_id, next_assessment_due_at')
+      .select('user_id, cumulative_engaged_seconds, next_assessment_due_seconds')
       .eq('user_id', userId)
       .single(),
     admin
@@ -51,7 +51,7 @@ export async function POST() {
           result.unavailableReason === 'no_source_questions'
             ? 'There are not enough prior questions to build an assessment yet.'
             : 'No assessment is available yet.',
-        nextDueAt: result.nextDueAt || participant.next_assessment_due_at,
+        nextDueSeconds: result.nextDueSeconds ?? participant.next_assessment_due_seconds,
       },
       { status: 409 }
     )
