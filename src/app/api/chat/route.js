@@ -325,7 +325,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     problem: displayProblem,
     phase: 'follow_up',
     difficulty,
-    hintAllowed: requestedHint && hintState.hintAllowed,
+    hintAllowed: hintState.hintAllowed,
     hintRequestedButDelayed,
     fullSolutionAllowed: false,
     secondsSinceProblemStarted: hintState.secondsSinceStarted,

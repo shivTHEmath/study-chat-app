@@ -212,11 +212,14 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
 
   if (hintAllowed) {
     return [
-      'A concrete hint is now allowed.',
-      'Give only the next useful hint, calibrated to the answer specificity level.',
+      'A concrete hint is now allowed, and giving the next hint is your DEFAULT response this turn — the student does not need to have asked for one.',
+      'FIRST decide whether the student\'s message is primarily an answer submission or a request to check their work (verification).',
+      'If it IS a verification: do NOT give a proactive hint. If their answer is correct, confirm it warmly and set isProblemComplete to true; if it is incorrect, kindly signpost that it is not right and where the error is, without advancing the solution. In both cases set hintGiven to false.',
+      'If it is NOT a verification (a question, "I\'m stuck", "what do I do next", an explicit hint request, or general chat about the problem): give only the next useful hint, calibrated to the answer specificity level, and set hintGiven to true.',
       'Use LaTeX delimiters for all math.',
-      'Do not give the final answer or full solution. Set hintGiven to true.',
-      'If this hint leads the student to the correct answer, set isProblemComplete to true.',
+      'Do not give the final answer or full solution.',
+      'If a hint leads the student to the correct answer, set isProblemComplete to true.',
+      'PRECEDENCE: if the metacognitive pacing below leads you to deliver a metacognitive prompt this turn, deliver that reflection INSTEAD of a concrete hint (set hintGiven to false and metacognitivePromptIncluded to true) — the hint can wait for a later turn.',
       NO_SOCRATIC,
       mcpGuidance,
       FLAGS_NOTE,
