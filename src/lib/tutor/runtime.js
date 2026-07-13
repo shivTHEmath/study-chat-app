@@ -60,8 +60,12 @@ export function buildRuntimeContext({
   const verifiedAnswerBlock =
     !isNewProblem && verifiedAnswer
       ? `
-Verified correct final answer (SERVER-SIDE GROUND TRUTH — NEVER reveal, quote, or hint at it):
+Verified correct final answer (SERVER-SIDE GROUND TRUTH — NEVER reveal, quote, or state it to the student):
 ${verifiedAnswer}
+
+Hint-consistency rule — every hint MUST agree with this ground truth:
+- Use the verified answer SILENTLY to sanity-check any hint, strategy, or claim before you write it. Never suggest an approach or assert a property that contradicts it (e.g. do not suggest integer factoring or say the roots "look rational" when the verified answer is irrational; do not claim a nice closed form the verified answer lacks).
+- If a technique would dead-end short of the verified answer, do not recommend it — point toward a path that actually reaches it, still without revealing it.
 
 Judging rule — this overrides your own re-derivation:
 - Do NOT re-solve the problem to decide correctness. Compare the student's final answer against the verified answer above.
@@ -217,6 +221,8 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'FIRST decide whether the student\'s message is primarily an answer submission or a request to check their work (verification).',
       'If it IS a verification: do NOT give a proactive hint. If their answer is correct, confirm it warmly and set isProblemComplete to true; if it is incorrect, kindly signpost that it is not right and where the error is, without advancing the solution. In both cases set hintGiven to false.',
       'If it is NOT a verification (a question, "I\'m stuck", "what do I do next", an explicit hint request, or general chat about the problem): give only the next useful hint, calibrated to the answer specificity level, and set hintGiven to true.',
+      'VERIFY BEFORE HINTING: silently work the solution far enough to confirm your hint is mathematically true and actually leads to the verified ground-truth answer. Never assert a property of the problem (e.g. "it factors into integers", "the roots are rational", "the answer is a whole number") unless you have confirmed it from your own worked solution AND it is consistent with the ground truth. A hint that misstates the mathematics is worse than no hint.',
+      'If the student asks a factual question about the problem (e.g. whether the roots are rational), your hint must not imply a false answer to it — either answer-by-nudge truthfully within the AS budget, or guide them to a check (like the discriminant) that lets them decide, but never suggest the wrong direction.',
       'Use LaTeX delimiters for all math.',
       'Do not give the final answer or full solution.',
       'If a hint leads the student to the correct answer, set isProblemComplete to true.',
