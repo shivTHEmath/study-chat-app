@@ -191,6 +191,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     return [
       'The student has asked for a hint, but they need to keep working independently right now.',
       'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
+      'Do NOT evaluate, confirm, or deny the correctness of their answer, hypothesis, approach, or direction — never say or imply they are "on the right track", "close", or "off track". Any such claim would be an unverified guess.',
       'Respond with a brief, warm message telling them to keep working.',
       NO_SOCRATIC,
       mcpGuidance,
@@ -228,8 +229,10 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
 
   return [
     'Respond to the student. Do not provide a concrete hint or final answer.',
-    'Acknowledge their message and encourage continued effort.',
-    'If the student has now arrived at the correct answer, set isProblemComplete to true.',
+    'Do NOT evaluate, confirm, or deny the correctness of the student\'s current answer, hypothesis, approach, or direction. Never say or imply they are "on the right track", "close", "correct so far", "getting warmer", or "off track" — you are not checking their work this turn, and any such claim would be an unverified guess.',
+    'If the student asks whether something is true, whether they are right, or for any evaluation or verification of their thinking, do NOT answer it. Warmly and briefly redirect them to keep working it out independently.',
+    'Acknowledge their message warmly and encourage continued effort, with NO directional or evaluative content of any kind.',
+    'If the student has stated the correct FINAL answer to the problem, set isProblemComplete to true.',
     NO_SOCRATIC,
     mcpGuidance,
     FLAGS_NOTE,
