@@ -172,7 +172,9 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     conversation: [],
   })
 
-  const { text: modelText, usage } = await askTutor(runtimeContext, body.studentMessage)
+  // Use the stronger solver model here: this call computes and stores the
+  // ground-truth answer, which must be correct.
+  const { text: modelText, usage } = await askTutor(runtimeContext, body.studentMessage, { model: SOLVER_MODEL })
   const parsed = parseNewProblemResponse(modelText)
 
   // Not a math problem (trivia, other subjects, chit-chat): decline warmly and
@@ -217,6 +219,7 @@ async function handleNewProblem({ admin, body, condition, grade, participantCoun
     displayProblem,
     difficulty,
     expectedAnswer: parsed?.expectedAnswer || null,
+    expectedSolution: parsed?.solution || null,
   })
 
   await logQuestion(admin, userId, {
@@ -342,6 +345,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
     mcpReaskCount,
     conversation: body.conversation,
     verifiedAnswer: attempt?.expected_answer || null,
+    verifiedSolution: attempt?.expected_solution || null,
   })
 
   const { text: modelText, usage, finishReason } = await askTutor(runtimeContext, body.studentMessage)
@@ -673,9 +677,17 @@ async function askGeneralTutor(context, studentMessage) {
   }
 }
 
-async function askTutor(runtimeContext, studentMessage) {
+// Model used to compute the ground-truth answer when a NEW problem is submitted.
+// This step must be mathematically reliable — a wrong answer here poisons every
+// downstream hint and grade — so it defaults to a stronger solver model,
+// independent of the cheaper model used for follow-up chat. Falls back to
+// OPENAI_MODEL, then the mini default, if unset.
+const SOLVER_MODEL =
+  process.env.OPENAI_SOLVER_MODEL || process.env.OPENAI_MODEL || 'gpt-5.4-mini'
+
+async function askTutor(runtimeContext, studentMessage, { model } = {}) {
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: model || process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     // Reasoning tokens count against this budget; keep generous headroom so
     // deliberation can never starve the visible message to empty.
     max_completion_tokens: 10000,
@@ -809,6 +821,7 @@ async function createProblemAttempt({
   displayProblem,
   difficulty,
   expectedAnswer,
+  expectedSolution,
 }) {
   const { data, error } = await admin
     .from('problem_attempts')
@@ -819,6 +832,7 @@ async function createProblemAttempt({
       display_problem: displayProblem,
       difficulty,
       expected_answer: expectedAnswer ?? null,
+      expected_solution: expectedSolution ?? null,
       as_value: condition.as_value,
       ad_base_c: condition.ad_base_c,
       mcp_value: condition.mcp_value,
@@ -1055,6 +1069,10 @@ function parseNewProblemResponse(text) {
         typeof parsed.expectedAnswer === 'string' && parsed.expectedAnswer.trim()
           ? parsed.expectedAnswer.trim()
           : null,
+      solution:
+        typeof parsed.solution === 'string' && parsed.solution.trim()
+          ? parsed.solution.trim()
+          : null,
       // Strip any old [Label] suffix the model may have included
       message: parsed.message.replace(/\n\[[\w\s,]+\]\s*$/, '').trim(),
     }
@@ -1065,11 +1083,13 @@ function parseNewProblemResponse(text) {
   const msgMatch = stripped.match(/"message"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
   if (dpMatch && msgMatch) {
     const eaMatch = stripped.match(/"expectedAnswer"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
+    const solMatch = stripped.match(/"solution"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
     return {
       isMath: !/"isMath"\s*:\s*false/.test(stripped),
       displayProblem: unescapeJsonString(dpMatch[1]).trim(),
       difficulty: clampDifficulty((stripped.match(/"difficulty"\s*:\s*(\d)/) || [])[1]),
       expectedAnswer: eaMatch ? unescapeJsonString(eaMatch[1]).trim() || null : null,
+      solution: solMatch ? unescapeJsonString(solMatch[1]).trim() || null : null,
       message: unescapeJsonString(msgMatch[1]).replace(/\n\[[\w\s,]+\]\s*$/, '').trim(),
     }
   }

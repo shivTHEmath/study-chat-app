@@ -49,6 +49,7 @@ export function buildRuntimeContext({
   mcpReaskCount,
   conversation,
   verifiedAnswer,
+  verifiedSolution,
 }) {
   const safeCondition = condition || CENTER_CONDITION
   const isNewProblem = phase === 'new_problem'
@@ -62,13 +63,22 @@ export function buildRuntimeContext({
       ? `
 Verified correct final answer (SERVER-SIDE GROUND TRUTH — NEVER reveal, quote, or state it to the student):
 ${verifiedAnswer}
+${verifiedSolution ? `
+Reference worked solution (SERVER-SIDE GROUND TRUTH — NEVER reveal, quote, or walk the student through it):
+${verifiedSolution}
+` : ''}
+Use the verified answer${verifiedSolution ? ' and reference solution' : ''} SILENTLY, as your private reference. Never reveal, quote, or hint at ${verifiedSolution ? 'them' : 'it'}.
 
 Hint-consistency rule — every hint MUST agree with this ground truth:
-- Use the verified answer SILENTLY to sanity-check any hint, strategy, or claim before you write it. Never suggest an approach or assert a property that contradicts it (e.g. do not suggest integer factoring or say the roots "look rational" when the verified answer is irrational; do not claim a nice closed form the verified answer lacks).
-- If a technique would dead-end short of the verified answer, do not recommend it — point toward a path that actually reaches it, still without revealing it.
+- Sanity-check any hint, strategy, or claim against it before you write it. Never suggest an approach or assert a property that contradicts it (e.g. do not suggest integer factoring or say the roots "look rational" when the verified answer is irrational; do not claim a nice closed form the verified answer lacks).
+- If a technique would dead-end short of the verified answer, do not recommend it.
 
-Judging rule — this overrides your own re-derivation:
-- Do NOT re-solve the problem to decide correctness. Compare the student's final answer against the verified answer above.
+Step-verification rule — how to judge a step, method, or claim the student states:
+- A student's step is CORRECT if it is mathematically valid AND consistent with eventually reaching the verified answer. This INCLUDES valid alternate methods that do not appear in the reference solution — judge the mathematics directly; never mark a correct step wrong just because it takes a different path than the reference.
+- A student's step is INCORRECT if it is mathematically invalid or cannot lead to the verified answer. Explain the flaw in THEIR step specifically.
+
+Final-answer judging rule — this overrides your own re-derivation:
+- Do NOT re-solve the problem to decide whether their FINAL answer is right. Compare the student's final answer against the verified answer above.
 - Accept mathematically equivalent forms (e.g. 1/2 = 0.5, x log x = \\(x\\log x\\), unsimplified but equal expressions, reordered solution sets).
 - If the student's final answer matches: confirm it warmly, set isProblemComplete to true, and STOP tutoring this problem — no further questions, steps, or guidance beyond what the runtime instruction for this turn explicitly requires.
 - If it does not match: they are incorrect, even if your own working suggests otherwise.
@@ -139,6 +149,7 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Preserve the exact mathematical meaning and use LaTeX delimiters for all math.',
       'Estimate the difficulty from 1 to 5.',
       'Solve the problem internally (per Step 0 of your instructions) and put the exact final answer in expectedAnswer — the answer only (e.g. "x = 2", "x\\\\log x", "{-3, 3}"), no working. It is stored server-side as the ground truth for judging the student and is NEVER shown to them.',
+      'Also put your concise, correct, step-by-step worked solution in the "solution" field — the key steps and results that lead to expectedAnswer (use LaTeX for math). This is stored server-side as the reference used to verify the student\'s steps on later turns; it is NEVER shown to the student. Make it correct and complete, not padded.',
       'THIS IS THE PRODUCTIVE FAILURE PERIOD.',
       'Do NOT give any hints, guidance, strategies, starting points, or directions of ANY kind.',
       'This is the strictest rule of this turn: your message must contain ZERO mathematical direction.',
@@ -148,14 +159,29 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Good (zero direction): "Nice problem! Give it a real try on your own first, then come back with what you find and we\'ll dig in together."',
       'Bad (contains direction): "Give it a try — test small values and see what patterns emerge." (this names a strategy — forbidden)',
       'Return only valid JSON in this exact shape:',
-      '{"isMath":true,"displayProblem":"polished problem text","difficulty":3,"expectedAnswer":"exact final answer","message":"student-facing tutor response"}.',
+      '{"isMath":true,"displayProblem":"polished problem text","difficulty":3,"expectedAnswer":"exact final answer","solution":"concise correct step-by-step worked solution","message":"student-facing tutor response"}.',
     ].join(' ')
   }
 
   // Standalone Socratic questioning is disabled. The hint system now carries
   // the gentle, question-shaped guidance role; outside an allowed hint the
-  // tutor only acknowledges and encourages.
-  const NO_SOCRATIC = 'Do NOT ask any Socratic questions this turn. Do not ask the student what they have tried, where they are stuck, or any open-ended process question.'
+  // tutor only acknowledges and encourages. Exception: after telling a student a
+  // step is wrong, a brief "what else could we try?" redirect is allowed (it
+  // does not supply the next move) — see VERIFICATION_RULE.
+  const NO_SOCRATIC = 'Do NOT ask any Socratic questions this turn. Do not ask the student what they have tried, where they are stuck, or any open-ended process question. (You MAY end a wrong-step correction with a brief invitation to consider a different approach, as long as you do not name the approach.)'
+
+  // Verification is ALWAYS permitted, on every follow-up turn, independent of
+  // whether a hint is allowed — telling the student whether their own step is
+  // right or wrong is knowledge of results, not a hint. This is what lets the
+  // tutor verify during the access delay without ever supplying the next move.
+  const VERIFICATION_RULE = [
+    'ALWAYS-ON VERIFICATION (independent of any hint permission this turn, including during the access delay):',
+    'Check whether the student\'s message states a step, method, claim, or answer. If it does, tell them plainly whether it is CORRECT or INCORRECT, judged per the step-verification and final-answer rules in the ground-truth block.',
+    'If INCORRECT: say clearly that it is not right and explain WHY their specific step fails, then you may briefly invite them to consider a different approach — but do NOT name the approach, technique, or next move.',
+    'If CORRECT: affirm it warmly and encourage them to keep going in that direction — but do NOT reveal the next step.',
+    'Verification is NOT a hint: it never supplies the next move, only judges the move the student already made. Set hintGiven to false for a verification unless this turn also independently permits and gives a hint.',
+    'If the message contains no checkable step/claim/answer, do not force a verdict.',
+  ].join(' ')
 
   // Metacognitive prompt pacing. The server enforces the budget (mcpRemaining
   // can never exceed the assigned rate), but the AI chooses WHEN to place the
@@ -186,6 +212,8 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
         ? 'IMPORTANT: You have already asked more than once. If the student seems uncomfortable, resistant, or unable to answer, do NOT push again — let it go, set mcpDropped to true, briefly reassure them, and continue helping normally this turn.'
         : 'If the student explicitly says they are not comfortable answering or cannot answer, do not force it — set mcpDropped to true, reassure them briefly, and continue helping this turn.',
       'Keep your message short and warm, never scolding.',
+      'Even while waiting for the reflection, if their message states a step or answer you may still tell them whether it is correct or incorrect per the rule below — that is not "help", it is verification.',
+      VERIFICATION_RULE,
       'Append the flags JSON as the final line. In addition to the usual fields, include "mcpAnswered": true/false and "mcpDropped": true/false.',
       FLAGS_NOTE,
     ].join(' ')
@@ -195,9 +223,10 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     return [
       'The student has asked for a hint, but they need to keep working independently right now.',
       'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
-      'Do NOT evaluate, confirm, or deny the correctness of their answer, hypothesis, approach, or direction — never say or imply they are "on the right track", "close", or "off track". Any such claim would be an unverified guess.',
-      'Respond with a brief, warm message telling them to keep working.',
+      'You MAY still verify a step or answer they stated (right/wrong + why) per the rule below — verification is not a hint.',
+      'Otherwise respond with a brief, warm message telling them to keep working.',
       NO_SOCRATIC,
+      VERIFICATION_RULE,
       mcpGuidance,
       FLAGS_NOTE,
     ].join(' ')
@@ -207,9 +236,11 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
     return [
       'All hints for this problem have been given (80% solution cap reached).',
       'Do NOT provide any further hints.',
-      'Respond with brief, warm encouragement only.',
+      'You MAY still verify a step or answer they stated (right/wrong + why) per the rule below — verification is not a hint.',
+      'Otherwise respond with brief, warm encouragement only.',
       'If the student has now arrived at the correct answer, set isProblemComplete to true.',
       NO_SOCRATIC,
+      VERIFICATION_RULE,
       mcpGuidance,
       FLAGS_NOTE,
     ].join(' ')
@@ -217,29 +248,27 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
 
   if (hintAllowed) {
     return [
-      'A concrete hint is now allowed, and giving the next hint is your DEFAULT response this turn — the student does not need to have asked for one.',
-      'FIRST decide whether the student\'s message is primarily an answer submission or a request to check their work (verification).',
-      'If it IS a verification: do NOT give a proactive hint. If their answer is correct, confirm it warmly and set isProblemComplete to true; if it is incorrect, kindly signpost that it is not right and where the error is, without advancing the solution. In both cases set hintGiven to false.',
-      'If it is NOT a verification (a question, "I\'m stuck", "what do I do next", an explicit hint request, or general chat about the problem): give only the next useful hint, calibrated to the answer specificity level, and set hintGiven to true.',
+      'First, apply the always-on verification rule below to any step or answer the student stated.',
+      'Then, unless their message was purely an answer submission / request to check their work, a concrete hint is also allowed this turn and is your DEFAULT next move — the student does not need to have asked for one. Give only the next useful hint, calibrated to the answer specificity level, and set hintGiven to true. (If the message was purely a verification, do not add a proactive hint; set hintGiven to false.)',
       'VERIFY BEFORE HINTING: silently work the solution far enough to confirm your hint is mathematically true and actually leads to the verified ground-truth answer. Never assert a property of the problem (e.g. "it factors into integers", "the roots are rational", "the answer is a whole number") unless you have confirmed it from your own worked solution AND it is consistent with the ground truth. A hint that misstates the mathematics is worse than no hint.',
-      'If the student asks a factual question about the problem (e.g. whether the roots are rational), your hint must not imply a false answer to it — either answer-by-nudge truthfully within the AS budget, or guide them to a check (like the discriminant) that lets them decide, but never suggest the wrong direction.',
       'Use LaTeX delimiters for all math.',
       'Do not give the final answer or full solution.',
-      'If a hint leads the student to the correct answer, set isProblemComplete to true.',
-      'PRECEDENCE: if the metacognitive pacing below leads you to deliver a metacognitive prompt this turn, deliver that reflection INSTEAD of a concrete hint (set hintGiven to false and metacognitivePromptIncluded to true) — the hint can wait for a later turn.',
+      'If the student has reached the correct final answer, set isProblemComplete to true.',
+      'PRECEDENCE: if the metacognitive pacing below leads you to deliver a metacognitive prompt this turn, deliver that reflection INSTEAD of a concrete hint (set hintGiven to false and metacognitivePromptIncluded to true) — the hint can wait for a later turn. (Verification still happens either way.)',
       NO_SOCRATIC,
+      VERIFICATION_RULE,
       mcpGuidance,
       FLAGS_NOTE,
     ].join(' ')
   }
 
   return [
-    'Respond to the student. Do not provide a concrete hint or final answer.',
-    'Do NOT evaluate, confirm, or deny the correctness of the student\'s current answer, hypothesis, approach, or direction. Never say or imply they are "on the right track", "close", "correct so far", "getting warmer", or "off track" — you are not checking their work this turn, and any such claim would be an unverified guess.',
-    'If the student asks whether something is true, whether they are right, or for any evaluation or verification of their thinking, do NOT answer it. Warmly and briefly redirect them to keep working it out independently.',
-    'Acknowledge their message warmly and encourage continued effort, with NO directional or evaluative content of any kind.',
+    'A hint is NOT allowed this turn: do not provide a concrete hint, the next step, a strategy, the method to use, or the final answer — nothing that supplies the student\'s next move.',
+    'But you MUST still verify: if the student stated a step or answer, tell them whether it is correct or incorrect (and why) per the rule below. This applies even during the access delay — verification is knowledge of results, not a hint.',
+    'Beyond any verification, acknowledge their message warmly and encourage continued effort, without supplying the next move.',
     'If the student has stated the correct FINAL answer to the problem, set isProblemComplete to true.',
     NO_SOCRATIC,
+    VERIFICATION_RULE,
     mcpGuidance,
     FLAGS_NOTE,
   ].join(' ')
