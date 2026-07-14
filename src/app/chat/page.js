@@ -632,7 +632,7 @@ export default function ChatPage() {
             <div className="w-full">
               <div className="card px-5 py-6 sm:px-7">
                 <h2 className="font-serif text-xl text-ink mb-1">How your tutor works</h2>
-                <p className="text-sm text-muted mb-5">It&rsquo;s not an answer key — it helps you build the thinking yourself.</p>
+                <p className="text-sm text-muted mb-5">It&rsquo;s not an answer key. It wants you to develop your thinking capabilities.</p>
 
                 <ul className="flex flex-col gap-4 mb-5">
                   <li className="flex gap-3">
@@ -641,7 +641,7 @@ export default function ChatPage() {
                     </span>
                     <div>
                       <p className="text-sm font-medium text-ink">You try first</p>
-                      <p className="text-sm text-muted leading-relaxed">Send a math problem and take a genuine attempt — even a rough one.</p>
+                      <p className="text-sm text-muted leading-relaxed">Send a math problem and make your best effort. The AI system won't help until it decides that you have tried your best.</p>
                     </div>
                   </li>
                   <li className="flex gap-3">
@@ -650,7 +650,7 @@ export default function ChatPage() {
                     </span>
                     <div>
                       <p className="text-sm font-medium text-ink">I guide, I don&rsquo;t tell</p>
-                      <p className="text-sm text-muted leading-relaxed">You&rsquo;ll get hints and questions, never the finished answer.</p>
+                      <p className="text-sm text-muted leading-relaxed">You&rsquo;ll get hints and questions, but never the finished answer.</p>
                     </div>
                   </li>
                   <li className="flex gap-3">
@@ -658,7 +658,7 @@ export default function ChatPage() {
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18h6" /><path d="M10 22h4" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5.76.76 1.23 1.52 1.41 2.5" /></svg>
                     </span>
                     <div>
-                      <p className="text-sm font-medium text-ink">The struggle is the point</p>
+                      <p className="text-sm font-medium text-ink">Struggling is Intended!</p>
                       <p className="text-sm text-muted leading-relaxed">Working through the hard part yourself is what builds real understanding.</p>
                     </div>
                   </li>
@@ -666,10 +666,10 @@ export default function ChatPage() {
 
                 <div className="rounded-md bg-paper px-4 py-3 mb-4">
                   <p className="text-sm font-medium text-ink mb-1">Why it works this way</p>
-                  <p className="text-sm text-muted leading-relaxed">This study looks at how students build their own reasoning. Being handed answers doesn&rsquo;t grow that — the effort you put in when a problem is hard is exactly what sharpens your thinking, for class, for exams, and beyond. So when the tutor holds back, that isn&rsquo;t it being unhelpful. That&rsquo;s the whole point.</p>
+                  <p className="text-sm text-muted leading-relaxed">This study looks at how students build their own reasoning. Being handed answers doesn&rsquo;t help grow that; the effort you put in when a problem is hard is what sharpens your thinking, for class, for exams, and beyond. So when the tutor holds back, that isn&rsquo;t it being unhelpful. It&rsquo;t designed that way.</p>
                 </div>
 
-                <p className="text-xs text-muted mb-4">For working through math problems — not a class schedule or a general chatbot.</p>
+                <p className="text-xs text-muted mb-4">Only for working through math problems. It is not a class schedule or a general chatbot.</p>
 
                 <div className="flex items-center gap-1.5 text-sm text-primary">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" /></svg>
