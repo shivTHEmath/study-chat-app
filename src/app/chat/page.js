@@ -28,6 +28,7 @@ export default function ChatPage() {
   const [pendingIntent, setPendingIntent] = useState(null)  // { text } when intent is ambiguous
   const [assessmentAvailable, setAssessmentAvailable] = useState(false)
   const [generalMode, setGeneralMode] = useState(false)     // open teaching conversation, no active problem
+  const [onboardingDone, setOnboardingDone] = useState(true) // first-session welcome gate; stays hidden until we confirm a first-timer
 
   // Bug-report feedback modal
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -82,6 +83,17 @@ export default function ChatPage() {
       if (!user) router.replace('/login')
     })
   }, [router])
+
+  // Show the first-session welcome gate only to a participant who has not yet
+  // sent their first problem. Persisted per-device in localStorage; once they
+  // send anything it is dismissed for good.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('aitutor_onboarded') !== '1') setOnboardingDone(false)
+    } catch {
+      // localStorage unavailable — leave the gate hidden rather than risk a loop.
+    }
+  }, [])
 
   // If an assessment became due in a previous session, show it when the
   // student returns and is between problems.
@@ -214,6 +226,12 @@ export default function ChatPage() {
   async function send() {
     const text = input.trim()
     if (!text || sending) return
+
+    // First message ever — retire the welcome gate for good on this device.
+    if (!onboardingDone) {
+      setOnboardingDone(true)
+      try { localStorage.setItem('aitutor_onboarded', '1') } catch {}
+    }
 
     lastInteractionRef.current = nowMs()  // reset idle-logout window
     setShowIdleWarning(false)
@@ -610,6 +628,56 @@ export default function ChatPage() {
       {/* Conversation */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-5 flex flex-col gap-4">
+          {!onboardingDone && messages.length === 0 && !problem && !problemPending && !generalMode && (
+            <div className="w-full">
+              <div className="card px-5 py-6 sm:px-7">
+                <h2 className="font-serif text-xl text-ink mb-1">How your tutor works</h2>
+                <p className="text-sm text-muted mb-5">It&rsquo;s not an answer key — it helps you build the thinking yourself.</p>
+
+                <ul className="flex flex-col gap-4 mb-5">
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-primary" style={{ background: 'rgba(29,58,95,0.09)' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium text-ink">You try first</p>
+                      <p className="text-sm text-muted leading-relaxed">Send a math problem and take a genuine attempt — even a rough one.</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-primary" style={{ background: 'rgba(29,58,95,0.09)' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium text-ink">I guide, I don&rsquo;t tell</p>
+                      <p className="text-sm text-muted leading-relaxed">You&rsquo;ll get hints and questions, never the finished answer.</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-primary" style={{ background: 'rgba(29,58,95,0.09)' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18h6" /><path d="M10 22h4" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5.76.76 1.23 1.52 1.41 2.5" /></svg>
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium text-ink">The struggle is the point</p>
+                      <p className="text-sm text-muted leading-relaxed">Working through the hard part yourself is what builds real understanding.</p>
+                    </div>
+                  </li>
+                </ul>
+
+                <div className="rounded-md bg-paper px-4 py-3 mb-4">
+                  <p className="text-sm font-medium text-ink mb-1">Why it works this way</p>
+                  <p className="text-sm text-muted leading-relaxed">This study looks at how students build their own reasoning. Being handed answers doesn&rsquo;t grow that — the effort you put in when a problem is hard is exactly what sharpens your thinking, for class, for exams, and beyond. So when the tutor holds back, that isn&rsquo;t it being unhelpful. That&rsquo;s the whole point.</p>
+                </div>
+
+                <p className="text-xs text-muted mb-4">For working through math problems — not a class schedule or a general chatbot.</p>
+
+                <div className="flex items-center gap-1.5 text-sm text-primary">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" /></svg>
+                  <span>Type your first problem below to begin.</span>
+                </div>
+              </div>
+            </div>
+          )}
           {messages.map((m, i) => (
             <Message key={i} role={m.role} text={m.text} />
           ))}
@@ -674,7 +742,7 @@ export default function ChatPage() {
               }}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Enter your question"
+              placeholder={!onboardingDone && messages.length === 0 && !problem ? 'Type or paste your first math problem…' : 'Enter your question'}
               className="field resize-none max-h-[140px] flex-1"
             />
             <button
