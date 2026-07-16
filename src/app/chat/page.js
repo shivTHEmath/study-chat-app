@@ -21,6 +21,7 @@ export default function ChatPage() {
   const [problemPending, setProblemPending] = useState(false)
   const [error, setError] = useState('')
   const [clockState, setClockState] = useState(null)          // returned by /api/chat
+  const [initialEngagedSeconds, setInitialEngagedSeconds] = useState(null) // seeded on mount; clockState takes over after the first message
   const [pendingCheckinType, setPendingCheckinType] = useState(null)
   const [paused, setPaused] = useState(false)
   const [showIdleWarning, setShowIdleWarning] = useState(false)
@@ -104,6 +105,11 @@ export default function ChatPage() {
         const data = await res.json()
         if (res.ok && data.assessmentAvailable) {
           setAssessmentAvailable(true)
+        }
+        // Seed the engaged-time banner before the first message of the session;
+        // after that, /api/chat responses keep it current via clockState.
+        if (res.ok && Number.isFinite(Number(data.engagedSeconds))) {
+          setInitialEngagedSeconds(Number(data.engagedSeconds))
         }
       } catch {
         // Best effort only; chat should still load if status polling fails.
@@ -428,12 +434,32 @@ export default function ChatPage() {
     }
   }
 
+  // Engaged-time banner value: live clock state once a message has been sent
+  // this session, otherwise the value seeded on mount.
+  const engagedSecondsForBanner =
+    clockState?.cumulativeEngagedSeconds ?? initialEngagedSeconds
+
   return (
     <div className="h-[100dvh] flex flex-col bg-paper">
       {/* App header */}
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center justify-between">
-          <span className="font-serif text-sm text-ink">AI Tutoring Study</span>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="font-serif text-sm text-ink whitespace-nowrap">AI Tutoring Study</span>
+            {engagedSecondsForBanner != null && (
+              <span
+                title="Time you have spent actively working with the tutor"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-0.5 text-xs text-muted whitespace-nowrap"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                {formatEngagedTime(engagedSecondsForBanner)}
+                <span className="hidden sm:inline">engaged</span>
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-4">
             <button
               onClick={() => setFeedbackOpen(true)}
@@ -777,6 +803,17 @@ async function readJsonResponse(response) {
         : 'The tutor service returned an unexpected error.',
     }
   }
+}
+
+// "4m" under an hour, "1h 05m" beyond it. Engaged time only moves when the
+// server ticks the clock (each message), so second-level precision would
+// suggest a live stopwatch we don't actually have.
+function formatEngagedTime(totalSeconds) {
+  const minutes = Math.max(0, Math.floor(Number(totalSeconds) / 60))
+  if (minutes < 60) return `${minutes}m`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return `${h}h ${String(m).padStart(2, '0')}m`
 }
 
 function getProblemText({ problem, problemPending }) {
