@@ -1,83 +1,31 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import MathText from '@/components/MathText'
 import { shouldTriggerCheckin, checkinMessageFor } from '@/lib/tutor/engagementClock'
 import { createClient } from '@/lib/supabase/client'
 
-function nowMs() {
-  return Date.now()
-}
-
 export default function ChatPage() {
   const router = useRouter()
   const [problem, setProblem] = useState('')
   const [problemOpen, setProblemOpen] = useState(true)
+  const [problemComplete, setProblemComplete] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [attemptId, setAttemptId] = useState(null)
   const [sending, setSending] = useState(false)
   const [problemPending, setProblemPending] = useState(false)
   const [error, setError] = useState('')
-  const [clockState, setClockState] = useState(null)          // returned by /api/chat
-  const [initialEngagedSeconds, setInitialEngagedSeconds] = useState(null) // seeded on mount; clockState takes over after the first message
+  const [clockState, setClockState] = useState(null)
   const [pendingCheckinType, setPendingCheckinType] = useState(null)
-  const [paused, setPaused] = useState(false)
-  const [showIdleWarning, setShowIdleWarning] = useState(false)
-  const [idleCountdown, setIdleCountdown] = useState(30)
-  const [pendingIntent, setPendingIntent] = useState(null)  // { text } when intent is ambiguous
-  const [assessmentAvailable, setAssessmentAvailable] = useState(false)
-  const [generalMode, setGeneralMode] = useState(false)     // open teaching conversation, no active problem
-  const [onboardingDone, setOnboardingDone] = useState(true) // first-session welcome gate; stays hidden until we confirm a first-timer
-
-  // Bug-report feedback modal
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [feedbackText, setFeedbackText] = useState('')
-  const [feedbackSending, setFeedbackSending] = useState(false)
-  const [feedbackError, setFeedbackError] = useState('')
-  const [feedbackSent, setFeedbackSent] = useState(false)
-
-  async function submitFeedback() {
-    const msg = feedbackText.trim()
-    if (!msg || feedbackSending) return
-    setFeedbackSending(true)
-    setFeedbackError('')
-    try {
-      const res = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setFeedbackError(data.error || 'Could not send. Please try again.')
-        setFeedbackSending(false)
-        return
-      }
-      setFeedbackSent(true)
-      setFeedbackText('')
-    } catch {
-      setFeedbackError('Could not send. Please try again.')
-    } finally {
-      setFeedbackSending(false)
-    }
-  }
-
-  function closeFeedback() {
-    setFeedbackOpen(false)
-    setFeedbackError('')
-    setFeedbackSent(false)
-  }
+  const [problemsCompleted, setProblemsCompleted] = useState(0)
+  const [celebrating, setCelebrating] = useState(false)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
-  const lastInteractionRef = useRef(nowMs())
-  const pausedRef = useRef(false)
 
-  // Client-side auth guard — fallback in case middleware is bypassed.
-  // Middleware is the primary guard; this catches edge cases like a stale
-  // cached page or a session that expired after the page loaded.
+  // Client-side auth guard
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -85,111 +33,29 @@ export default function ChatPage() {
     })
   }, [router])
 
-  // Show the first-session welcome gate only to a participant who has not yet
-  // sent their first problem. Persisted per-device in localStorage; once they
-  // send anything it is dismissed for good.
+  // Load initial problems_completed count
   useEffect(() => {
-    try {
-      if (localStorage.getItem('aitutor_onboarded') !== '1') setOnboardingDone(false)
-    } catch {
-      // localStorage unavailable — leave the gate hidden rather than risk a loop.
-    }
+    fetch('/api/progress')
+      .then((r) => r.json())
+      .then((d) => setProblemsCompleted(Number(d.problemsCompleted || 0)))
+      .catch(() => {})
   }, [])
-
-  // If an assessment became due in a previous session, show it when the
-  // student returns and is between problems.
-  useEffect(() => {
-    async function loadAssessmentStatus() {
-      try {
-        const res = await fetch('/api/assessments/status')
-        const data = await res.json()
-        if (res.ok && data.assessmentAvailable) {
-          setAssessmentAvailable(true)
-        }
-        // Seed the engaged-time banner before the first message of the session;
-        // after that, /api/chat responses keep it current via clockState.
-        if (res.ok && Number.isFinite(Number(data.engagedSeconds))) {
-          setInitialEngagedSeconds(Number(data.engagedSeconds))
-        }
-      } catch {
-        // Best effort only; chat should still load if status polling fails.
-      }
-    }
-
-    loadAssessmentStatus()
-  }, [])
-
-  // Idle auto-logout — signs the student out after 30 minutes with no prompt
-  // sent to the tutor, unless the session is paused. The timer resets only when
-  // the student sends a message; mouse/keyboard activity does not count.
-  // 30 seconds before logout, an "Are you still there?" warning appears.
-  useEffect(() => {
-    const IDLE_LOGOUT_MS = 30 * 60 * 1000
-    const WARN_AT_MS = IDLE_LOGOUT_MS - 30 * 1000
-    const id = setInterval(async () => {
-      if (pausedRef.current) return
-      const elapsed = nowMs() - lastInteractionRef.current
-      if (elapsed >= IDLE_LOGOUT_MS) {
-        clearInterval(id)
-        setShowIdleWarning(false)
-        const supabase = createClient()
-        await supabase.auth.signOut()
-        router.replace('/login')
-      } else if (elapsed >= WARN_AT_MS) {
-        setShowIdleWarning(true)
-        setIdleCountdown(Math.ceil((IDLE_LOGOUT_MS - elapsed) / 1000))
-      } else {
-        setShowIdleWarning(false)
-      }
-    }, 1_000)
-    return () => clearInterval(id)
-  }, [router])
-
-  // Keep a ref copy of paused so interval callbacks read the latest value.
-  useEffect(() => { pausedRef.current = paused }, [paused])
-
-  async function pauseSession() {
-    setPaused(true)
-    try {
-      await fetch('/api/session/pause', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paused: true }),
-      })
-    } catch { /* best-effort; UI still shows paused */ }
-  }
-
-  function confirmStillHere() {
-    lastInteractionRef.current = nowMs()
-    setShowIdleWarning(false)
-  }
-
-  async function resumeSession() {
-    lastInteractionRef.current = nowMs()
-    setPaused(false)
-    try {
-      await fetch('/api/session/pause', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paused: false }),
-      })
-    } catch { /* best-effort */ }
-  }
 
   // Idle check-in polling — runs every 30 s while the chat page is open.
   useEffect(() => {
     const id = setInterval(() => {
-      if (pausedRef.current) return
       if (!clockState || pendingCheckinType) return
       const hasActiveProblem = Boolean(problem && !problemPending)
-      if (shouldTriggerCheckin(
-        {
-          last_activity_at: clockState.lastActivityAt,
-          clock_paused_at: clockState.clockPausedAt,
-          pending_checkin_type: clockState.pendingCheckinType,
-        },
-        hasActiveProblem
-      )) {
+      if (
+        shouldTriggerCheckin(
+          {
+            last_activity_at: clockState.lastActivityAt,
+            clock_paused_at: clockState.clockPausedAt,
+            pending_checkin_type: clockState.pendingCheckinType,
+          },
+          hasActiveProblem
+        )
+      ) {
         const { type, message: checkinMsg } = checkinMessageFor(hasActiveProblem)
         setPendingCheckinType(type)
         setMessages((m) => [...m, { role: 'system', text: checkinMsg }])
@@ -204,6 +70,13 @@ export default function ChatPage() {
     if (el) el.scrollTop = el.scrollHeight
   }, [messages])
 
+  // Auto-dismiss celebration after 2.5 s
+  useEffect(() => {
+    if (!celebrating) return
+    const t = setTimeout(() => setCelebrating(false), 2500)
+    return () => clearTimeout(t)
+  }, [celebrating])
+
   const autoGrow = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -211,55 +84,24 @@ export default function ChatPage() {
     el.style.height = Math.min(el.scrollHeight, 140) + 'px'
   }, [])
 
-  // Resets everything so the NEXT message the student sends is treated as a
-  // brand-new problem: clears the conversation, the sticky problem, the current
-  // attempt, and the per-problem stats. send() routes to new_problem whenever
-  // `problem` is empty, so clearing it here is what starts the new problem.
-  function startNewProblem() {
-    if (sending) return
-    setProblem('')
-    setProblemPending(false)
-    setMessages([])
-    setAttemptId(null)
-    setGeneralMode(false)
-    setError('')
-    setInput('')
-    setProblemOpen(true)
-    lastInteractionRef.current = nowMs()
-    requestAnimationFrame(autoGrow)
-  }
-
   async function send() {
     const text = input.trim()
     if (!text || sending) return
 
-    // First message ever — retire the welcome gate for good on this device.
-    if (!onboardingDone) {
-      setOnboardingDone(true)
-      try { localStorage.setItem('aitutor_onboarded', '1') } catch {}
-    }
-
-    lastInteractionRef.current = nowMs()  // reset idle-logout window
-    setShowIdleWarning(false)
-    setPendingIntent(null)
     setError('')
     setSending(true)
-    if (generalMode) {
-      // Open teaching conversation — keep the thread and send the full history so
-      // the tutor has context. The server re-checks each turn; if the student
-      // pivots to a specific problem, it switches into problem mode.
-      const nextMessages = [...messages, { role: 'user', text }]
-      setMessages(nextMessages)
-      setInput('')
-      requestAnimationFrame(autoGrow)
 
-      await requestTutorMessage({
-        problemText: '',
-        studentMessage: text,
-        phase: 'general',
-        nextMessages,
-      })
-    } else if (!problem) {
+    // After a problem is solved, the next message starts a fresh problem.
+    const isNewProblem = !problem || problemComplete
+
+    if (isNewProblem) {
+      if (problemComplete) {
+        // Clear all per-problem state before starting fresh
+        setProblemComplete(false)
+        setProblem('')
+        setAttemptId(null)
+        setMessages([])
+      }
       setProblemPending(true)
       setProblemOpen(true)
       setInput('')
@@ -272,9 +114,6 @@ export default function ChatPage() {
         nextMessages: [],
       })
     } else {
-      // A problem is active — the server auto-detects whether this is a new
-      // problem or a follow-up. We optimistically show the message; if it turns
-      // out to be a new problem, requestTutorMessage clears the thread.
       const nextMessages = [...messages, { role: 'user', text }]
       setMessages(nextMessages)
       setInput('')
@@ -283,7 +122,7 @@ export default function ChatPage() {
       await requestTutorMessage({
         problemText: problem,
         studentMessage: text,
-        phase: 'auto',
+        phase: 'follow_up',
         nextMessages,
       })
     }
@@ -291,36 +130,7 @@ export default function ChatPage() {
     setSending(false)
   }
 
-  // Resolves an ambiguous message after the student picks from the confirmation
-  // prompt. 'new_problem' restarts fresh; 'follow_up' continues the thread.
-  function confirmIntent(choice) {
-    const p = pendingIntent
-    if (!p) return
-    setPendingIntent(null)
-    setSending(true)
-    if (choice === 'new_problem') {
-      requestTutorMessage({
-        problemText: p.text,
-        studentMessage: p.text,
-        phase: 'new_problem',
-        nextMessages: [],
-      }).finally(() => setSending(false))
-    } else {
-      requestTutorMessage({
-        problemText: problem,
-        studentMessage: p.text,
-        phase: 'follow_up',
-        nextMessages: messages,
-      }).finally(() => setSending(false))
-    }
-  }
-
-  async function requestTutorMessage({
-    problemText,
-    studentMessage,
-    phase,
-    nextMessages,
-  }) {
+  async function requestTutorMessage({ problemText, studentMessage, phase, nextMessages }) {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -338,90 +148,33 @@ export default function ChatPage() {
 
       const data = await readJsonResponse(response)
 
-      // Assessment gate — a due assessment must be completed before continuing.
-      // Roll back the optimistically-shown message and restore the typed text so
-      // nothing is lost, then surface the assessment block.
-      if (response.status === 409 && data?.assessmentRequired) {
-        setAssessmentAvailable(true)
-        setProblemPending(false)
-        setMessages((m) => (m.length && m[m.length - 1].role === 'user' ? m.slice(0, -1) : m))
-        setInput((cur) => (cur ? cur : studentMessage))
-        requestAnimationFrame(autoGrow)
-        return
-      }
-
       if (!response.ok) {
         throw new Error(data?.error || 'The tutor could not respond. Please try again.')
       }
 
-      // Classifier wasn't confident — ask the student to choose.
-      if (data.needsIntentConfirmation) {
-        setPendingIntent({ text: studentMessage, guess: data.intentGuess })
-        return
-      }
-
-      // General inquiry — direct teaching, no problem card. Enter general mode and
-      // show the exchange as a normal conversation. The user's message may not be
-      // in the thread yet (the fresh new_problem path doesn't add it), so add it
-      // if it's missing.
-      if (data.generalInquiry) {
-        setProblemPending(false)
-        setGeneralMode(true)
-        setMessages((m) => {
-          const last = m[m.length - 1]
-          const base =
-            last && last.role === 'user' && last.text === studentMessage
-              ? m
-              : [...m, { role: 'user', text: studentMessage }]
-          return data.message ? [...base, data.message] : base
-        })
-        if (data.clockState) {
-          setClockState(data.clockState)
-          if (!data.clockState.pendingCheckinType) setPendingCheckinType(null)
-        }
-        return
-      }
-
-      // Resolve whether this turn ended up being a new problem (explicitly
-      // requested, auto-detected, or a pivot to a specific problem from general
-      // mode). If so, reset the thread and enter problem mode — the
-      // optimistically-shown user message was actually a new problem, not a reply.
-      const resolvedNewProblem =
-        Boolean(data.displayProblem) &&
-        (phase === 'new_problem' ||
-          phase === 'general' ||
-          (phase === 'auto' && data.intent === 'new_problem'))
-
-      if (resolvedNewProblem) {
-        setGeneralMode(false)
-        setMessages([])
-        setAttemptId(null)
+      if (phase === 'new_problem' && data.displayProblem) {
         setProblem(data.displayProblem)
         setProblemPending(false)
       }
-      if (data.attemptId) {
-        setAttemptId(data.attemptId)
-      }
+      if (data.attemptId) setAttemptId(data.attemptId)
       if (data.clockState) {
         setClockState(data.clockState)
-        // Clear local pendingCheckinType once the server has processed the reply.
-        if (!data.clockState.pendingCheckinType) {
-          setPendingCheckinType(null)
-        }
+        if (!data.clockState.pendingCheckinType) setPendingCheckinType(null)
+      }
+
+      // Problem completion — celebrate and update local counter
+      if (data.isProblemComplete) {
+        setProblemComplete(true)
+        setProblemsCompleted((n) => n + 1)
+        setCelebrating(true)
       }
 
       if (data.message) {
         setMessages((m) => [...m, data.message])
       }
-
-      if (data.assessmentAvailable) {
-        setAssessmentAvailable(true)
-      }
     } catch (err) {
       setError(err.message || 'The tutor could not respond. Please try again.')
-      if (phase === 'new_problem') {
-        setProblemPending(false)
-      }
+      if (phase === 'new_problem') setProblemPending(false)
     } finally {
       setSending(false)
     }
@@ -434,58 +187,27 @@ export default function ChatPage() {
     }
   }
 
-  // Engaged-time banner value: live clock state once a message has been sent
-  // this session, otherwise the value seeded on mount.
-  const engagedSecondsForBanner =
-    clockState?.cumulativeEngagedSeconds ?? initialEngagedSeconds
-
   return (
     <div className="h-[100dvh] flex flex-col bg-paper">
+      {/* Confetti overlay */}
+      <Confetti active={celebrating} />
+
       {/* App header */}
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="font-serif text-sm text-ink whitespace-nowrap">AI Tutoring Study</span>
-            {engagedSecondsForBanner != null && (
-              <span
-                title="Time you have spent actively working with the tutor"
-                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-0.5 text-xs text-muted whitespace-nowrap"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-                {formatEngagedTime(engagedSecondsForBanner)}
-                <span className="hidden sm:inline">engaged</span>
-              </span>
-            )}
-          </div>
+          <span className="font-serif text-sm text-ink">AI Tutoring Study</span>
+
           <div className="flex items-center gap-4">
+            {/* Problems solved counter */}
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted" aria-live="polite">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>{problemsCompleted === 1 ? '1 solved' : `${problemsCompleted} solved`}</span>
+            </div>
+
             <button
-              onClick={() => setFeedbackOpen(true)}
-              className="rounded-md bg-danger/10 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/15 transition-colors"
-            >
-              Report a bug
-            </button>
-            <button
-              onClick={startNewProblem}
-              disabled={sending || (!problem && messages.length === 0)}
-              className="text-xs font-medium text-primary hover:text-primary/80 transition-colors disabled:text-faint disabled:cursor-not-allowed"
-            >
-              New problem
-            </button>
-            <button
-              onClick={pauseSession}
-              className="text-xs font-medium text-muted hover:text-ink transition-colors"
-            >
-              Pause session
-            </button>
-            <button
-              onClick={async () => {
-                const supabase = createClient()
-                await supabase.auth.signOut()
-                router.replace('/login')
-              }}
+              onClick={() => router.push('/login')}
               className="text-xs font-medium text-muted hover:text-ink transition-colors"
             >
               End session
@@ -494,243 +216,67 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Bug-report modal */}
-      {feedbackOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-4"
-          onClick={closeFeedback}
-        >
-          <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-            {feedbackSent ? (
-              <div className="text-center py-2">
-                <p className="font-serif text-lg text-ink mb-1">Thank you</p>
-                <p className="text-sm text-muted mb-6">
-                  Your report has been sent. Thanks for helping improve the study.
+      {/* Sticky, collapsible problem card */}
+      <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <div className={`card overflow-hidden transition-colors ${problemComplete ? 'border-emerald-400' : ''}`}>
+            <button
+              type="button"
+              onClick={() => setProblemOpen((o) => !o)}
+              aria-expanded={problemOpen}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+            >
+              <div className="flex items-center gap-2">
+                {problemComplete && (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+                <span className="eyebrow">{problemComplete ? 'Solved!' : 'Problem'}</span>
+              </div>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className={`text-muted transition-transform ${problemOpen ? 'rotate-180' : ''}`}
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+
+            {problemOpen ? (
+              <div className="px-4 pb-4 -mt-1">
+                <p className={`text-[15px] leading-relaxed ${problem ? 'text-ink' : 'text-muted'}`}>
+                  <MathText text={getProblemText({ problem, problemPending })} />
                 </p>
-                <button onClick={closeFeedback} className="btn btn-primary h-10 px-5">
-                  Close
-                </button>
+                {problemComplete && (
+                  <p className="mt-2 text-xs font-medium text-emerald-600">
+                    Great work! Type your next problem below to continue.
+                  </p>
+                )}
               </div>
             ) : (
-              <>
-                <p className="eyebrow text-danger">Report a bug</p>
-                <h2 className="font-serif text-lg text-ink mt-1 mb-1">Something not working?</h2>
-                <p className="text-sm text-muted mb-4">
-                  Describe what went wrong and we&apos;ll look into it. No need to add your name.
-                </p>
-                <textarea
-                  value={feedbackText}
-                  onChange={(e) => setFeedbackText(e.target.value)}
-                  rows={5}
-                  autoFocus
-                  placeholder="What happened? What were you trying to do?"
-                  className="field resize-none w-full"
-                />
-                {feedbackError && <p className="text-sm text-danger mt-2">{feedbackError}</p>}
-                <div className="mt-4 flex justify-end gap-2">
-                  <button
-                    onClick={closeFeedback}
-                    className="btn h-10 px-4 border border-line-strong text-ink"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitFeedback}
-                    disabled={!feedbackText.trim() || feedbackSending}
-                    className="btn btn-primary h-10 px-5 disabled:opacity-50"
-                  >
-                    {feedbackSending ? 'Sending…' : 'Send report'}
-                  </button>
-                </div>
-              </>
+              <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">
+                <MathText text={getProblemText({ problem, problemPending })} />
+              </p>
             )}
           </div>
         </div>
-      )}
-
-      {/* Paused overlay — blocks the session and stops the idle timer */}
-      {paused && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-paper/95 backdrop-blur-sm">
-          <div className="card max-w-sm mx-4 px-6 py-8 text-center">
-            <p className="font-serif text-lg text-ink mb-1">Session paused</p>
-            <p className="text-sm text-muted mb-6">
-              Your time is not being counted. Resume whenever you are ready to continue.
-            </p>
-            <button onClick={resumeSession} className="btn btn-primary w-full h-11">
-              Resume session
-            </button>
-          </div>
-        </div>
-      )}
-
-      {assessmentAvailable && !paused && (
-        <div className="shrink-0 border-b border-line bg-surface">
-          <div className="max-w-2xl mx-auto px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="eyebrow">Assessment ready</p>
-              <p className="mt-1 text-sm text-muted">
-                Complete a 10-problem, 30-minute assessment before continuing.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => router.push('/assessment')}
-              className="btn btn-primary h-10 px-4 text-sm"
-            >
-              Start assessment
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Idle warning — appears 30s before auto-logout */}
-      {showIdleWarning && !paused && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm">
-          <div className="card max-w-xs mx-4 px-6 py-7 text-center animate-in">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-            </div>
-            <p className="font-serif text-lg text-ink mb-1">Are you still there?</p>
-            <p className="text-sm text-muted mb-1">
-              You will be signed out in
-            </p>
-            <p className="mb-6 font-serif text-3xl font-semibold tabular-nums text-primary">
-              {idleCountdown}s
-            </p>
-            <button onClick={confirmStillHere} className="btn btn-primary w-full h-11">
-              Yes, I&rsquo;m here
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Sticky, collapsible problem card — hidden during a general teaching
-          conversation, which has no specific problem. */}
-      {!generalMode && (
-        <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
-          <div className="max-w-2xl mx-auto px-4 py-3">
-            <div className="card overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setProblemOpen((o) => !o)}
-                aria-expanded={problemOpen}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
-              >
-                <span className="eyebrow">Problem</span>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className={`text-muted transition-transform ${problemOpen ? 'rotate-180' : ''}`}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-              {problemOpen ? (
-                <div className="px-4 pb-4 -mt-1">
-                  <p className={`text-[15px] leading-relaxed ${problem ? 'text-ink' : 'text-muted'}`}>
-                    <MathText text={getProblemText({ problem, problemPending })} />
-                  </p>
-                </div>
-              ) : (
-                <p className="px-4 pb-3 -mt-1 text-sm text-muted truncate">
-                  <MathText text={getProblemText({ problem, problemPending })} />
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* Conversation */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-5 flex flex-col gap-4">
-          {!onboardingDone && messages.length === 0 && !problem && !problemPending && !generalMode && (
-            <div className="w-full">
-              <div className="card px-5 py-6 sm:px-7">
-                <h2 className="font-serif text-xl text-ink mb-1">How your tutor works</h2>
-                <p className="text-sm text-muted mb-5">It&rsquo;s not an answer key. It wants you to develop your thinking capabilities.</p>
-
-                <ul className="flex flex-col gap-4 mb-5">
-                  <li className="flex gap-3">
-                    <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-primary" style={{ background: 'rgba(29,58,95,0.09)' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-ink">You try first</p>
-                      <p className="text-sm text-muted leading-relaxed">Send a math problem and make your best effort. The AI system won't help until it decides that you have tried your best.</p>
-                    </div>
-                  </li>
-                  <li className="flex gap-3">
-                    <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-primary" style={{ background: 'rgba(29,58,95,0.09)' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-ink">I guide, I don&rsquo;t tell</p>
-                      <p className="text-sm text-muted leading-relaxed">You&rsquo;ll get hints and questions, but never the finished answer.</p>
-                    </div>
-                  </li>
-                  <li className="flex gap-3">
-                    <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-primary" style={{ background: 'rgba(29,58,95,0.09)' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18h6" /><path d="M10 22h4" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5.76.76 1.23 1.52 1.41 2.5" /></svg>
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-ink">Struggling is Intended!</p>
-                      <p className="text-sm text-muted leading-relaxed">Working through the hard part yourself is what builds real understanding.</p>
-                    </div>
-                  </li>
-                </ul>
-
-                <div className="rounded-md bg-paper px-4 py-3 mb-4">
-                  <p className="text-sm font-medium text-ink mb-1">Why it works this way</p>
-                  <p className="text-sm text-muted leading-relaxed">This study looks at how students build their own reasoning. Being handed answers doesn&rsquo;t help grow that; the effort you put in when a problem is hard is what sharpens your thinking, for class, for exams, and beyond. So when the tutor holds back, that isn&rsquo;t it being unhelpful. It&rsquo;t designed that way.</p>
-                </div>
-
-                <p className="text-xs text-muted mb-4">Only for working through math problems. It is not a class schedule or a general chatbot.</p>
-
-                <div className="flex items-center gap-1.5 text-sm text-primary">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" /></svg>
-                  <span>Type your first problem below to begin.</span>
-                </div>
-              </div>
-            </div>
-          )}
           {messages.map((m, i) => (
             <Message key={i} role={m.role} text={m.text} />
           ))}
           {sending && <TypingIndicator />}
-          {pendingIntent && !sending && (
-            <div className="flex justify-center">
-              <div className="card max-w-sm px-4 py-3.5 text-center">
-                <p className="text-sm text-ink mb-3">
-                  Is this a new problem, or a follow-up to the current one?
-                </p>
-                <div className="flex gap-2 justify-center">
-                  <button
-                    onClick={() => confirmIntent('new_problem')}
-                    className="btn btn-primary text-xs px-3.5 py-1.5"
-                  >
-                    New problem
-                  </button>
-                  <button
-                    onClick={() => confirmIntent('follow_up')}
-                    className="btn text-xs px-3.5 py-1.5 border border-line text-ink hover:bg-paper"
-                  >
-                    Follow-up
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
           {error && (
             <div className="rounded-md border border-danger/30 bg-surface px-3 py-2 text-sm text-danger">
               {error}
@@ -739,61 +285,99 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Composer — locked while an assessment is pending */}
+      {/* Composer */}
       <div
         className="shrink-0 border-t border-line bg-surface"
         style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
       >
-        {assessmentAvailable ? (
-          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-muted">
-              Complete your assessment to continue the conversation.
-            </p>
-            <button
-              type="button"
-              onClick={() => router.push('/assessment')}
-              className="btn btn-primary h-10 px-4 text-sm shrink-0"
-            >
-              Go to assessment
-            </button>
-          </div>
-        ) : (
-          <div className="max-w-2xl mx-auto px-3 py-3 flex items-end gap-2">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value)
-                autoGrow()
-              }}
-              onKeyDown={onKeyDown}
-              rows={1}
-              placeholder={!onboardingDone && messages.length === 0 && !problem ? 'Type or paste your first math problem…' : 'Enter your question'}
-              className="field resize-none max-h-[140px] flex-1"
-            />
-            <button
-              type="button"
-              onClick={send}
-              disabled={!input.trim() || sending}
-              aria-label="Send message"
-              className="btn btn-primary h-11 w-11 shrink-0 rounded-full p-0"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
-            </button>
-          </div>
-        )}
+        <div className="max-w-2xl mx-auto px-3 py-3 flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value)
+              autoGrow()
+            }}
+            onKeyDown={onKeyDown}
+            rows={1}
+            placeholder={
+              problemComplete
+                ? 'Enter your next problem…'
+                : problem
+                ? 'Enter your question'
+                : 'Enter a math problem to get started…'
+            }
+            className="field resize-none max-h-[140px] flex-1"
+          />
+          <button
+            type="button"
+            onClick={send}
+            disabled={!input.trim() || sending}
+            aria-label="Send message"
+            className="btn btn-primary h-11 w-11 shrink-0 rounded-full p-0"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="19" x2="12" y2="5" />
+              <polyline points="5 12 12 5 19 12" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
+// ─── Confetti ────────────────────────────────────────────────────────────────
+
+function Confetti({ active }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 36 }, (_, i) => ({
+        id: i,
+        left: (5 + (i * 2.5 + Math.random() * 8) % 90).toFixed(1),
+        color: ['#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899'][i % 6],
+        delay: ((i % 6) * 0.1 + Math.random() * 0.3).toFixed(2),
+        duration: (0.9 + Math.random() * 0.9).toFixed(2),
+        size: Math.round(6 + Math.random() * 8),
+        round: i % 3 !== 0,
+      })),
+    [] // generate once on mount, reuse across active/inactive cycles
+  )
+
+  if (!active) return null
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden" aria-hidden="true">
+      <style>{`
+        @keyframes confetti-fall {
+          0%   { transform: translateY(-20px) rotate(0deg);   opacity: 1; }
+          100% { transform: translateY(105vh) rotate(600deg); opacity: 0; }
+        }
+      `}</style>
+      {pieces.map((p) => (
+        <div
+          key={p.id}
+          style={{
+            position: 'absolute',
+            left: `${p.left}%`,
+            top: 0,
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            borderRadius: p.round ? '50%' : '2px',
+            animation: `confetti-fall ${p.duration}s ${p.delay}s ease-in forwards`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 async function readJsonResponse(response) {
   const text = await response.text()
   if (!text) return {}
-
   try {
     return JSON.parse(text)
   } catch {
@@ -805,25 +389,15 @@ async function readJsonResponse(response) {
   }
 }
 
-// "4m" under an hour, "1h 05m" beyond it. Engaged time only moves when the
-// server ticks the clock (each message), so second-level precision would
-// suggest a live stopwatch we don't actually have.
-function formatEngagedTime(totalSeconds) {
-  const minutes = Math.max(0, Math.floor(Number(totalSeconds) / 60))
-  if (minutes < 60) return `${minutes}m`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return `${h}h ${String(m).padStart(2, '0')}m`
-}
-
 function getProblemText({ problem, problemPending }) {
   if (problem) return problem
   if (problemPending) return 'Preparing your problem...'
-  return 'Enter your question below.'
+  return 'Enter a math problem below to get started.'
 }
 
+// ─── UI components ───────────────────────────────────────────────────────────
+
 function Message({ role, text }) {
-  // System messages (idle check-ins) appear as a centred, muted notice.
   if (role === 'system') {
     return (
       <div className="flex justify-center">
