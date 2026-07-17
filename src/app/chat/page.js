@@ -429,50 +429,65 @@ function NeighborhoodPanel({ neighborhood, rankTotal }) {
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[9px] font-medium text-muted uppercase tracking-wide">
+      {/* Header: "Rank 10 of 47 · by study time" */}
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="text-[11px] font-semibold text-ink">
           {myEntry ? `Rank ${myEntry.rank} of ${rankTotal}` : 'Your rank'}
         </span>
         <span className="text-[9px] text-faint">by study time</span>
       </div>
 
       {neighborhood.length === 0 ? (
-        <p className="text-[10px] text-faint">Loading…</p>
+        <p className="text-xs text-faint">Loading…</p>
       ) : (
-        <div className="flex flex-col gap-px">
+        <div className="flex flex-col" style={{ gap: '2px' }}>
           {neighborhood.map((row) => (
             <div
               key={row.rank}
-              className="flex items-center gap-1.5"
-              style={row.isMe ? { fontWeight: 600 } : undefined}
+              className="flex items-center gap-2 rounded"
+              style={
+                row.isMe
+                  ? { background: '#eff6ff', padding: '2px 4px', margin: '0 -4px' }
+                  : { padding: '2px 4px', margin: '0 -4px' }
+              }
             >
+              {/* Rank number */}
               <span
-                className="text-[10px] w-4 text-right shrink-0"
-                style={{ color: row.isMe ? 'var(--color-primary, #3b82f6)' : 'var(--color-faint, #ccc)' }}
+                style={{
+                  fontSize: row.isMe ? '13px' : '11px',
+                  fontWeight: row.isMe ? 700 : 400,
+                  color: row.isMe ? '#2563eb' : '#bbb',
+                  width: '18px',
+                  textAlign: 'right',
+                  flexShrink: 0,
+                  lineHeight: 1,
+                }}
               >
                 {row.rank}
               </span>
+
+              {/* Name */}
               <span
-                className="text-[10px] flex-1 truncate"
-                style={{ color: row.isMe ? 'var(--color-ink, #111)' : 'var(--color-secondary, #666)' }}
+                className="flex-1 truncate"
+                style={{
+                  fontSize: row.isMe ? '13px' : '11px',
+                  fontWeight: row.isMe ? 700 : 400,
+                  color: row.isMe ? '#111' : '#888',
+                  lineHeight: 1,
+                }}
               >
-                {row.isMe ? (
-                  <>
-                    You{' '}
-                    <span
-                      className="text-[8px] rounded px-1 py-px"
-                      style={{ background: '#dbeafe', color: '#2563eb' }}
-                    >
-                      you
-                    </span>
-                  </>
-                ) : (
-                  `P-${row.slotId}`
-                )}
+                {row.isMe ? 'You ✦' : `P-${row.slotId}`}
               </span>
+
+              {/* Time */}
               <span
-                className="text-[10px] tabular-nums shrink-0"
-                style={{ color: row.isMe ? 'var(--color-primary, #3b82f6)' : 'var(--color-muted, #999)' }}
+                className="tabular-nums shrink-0"
+                style={{
+                  fontSize: row.isMe ? '13px' : '11px',
+                  fontWeight: row.isMe ? 700 : 400,
+                  color: row.isMe ? '#2563eb' : '#aaa',
+                  lineHeight: 1,
+                }}
               >
                 {formatEngagedTime(row.seconds)}
               </span>
