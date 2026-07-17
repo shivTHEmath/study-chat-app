@@ -6,6 +6,9 @@ import MathText from '@/components/MathText'
 import { shouldTriggerCheckin, checkinMessageFor } from '@/lib/tutor/engagementClock'
 import { createClient } from '@/lib/supabase/client'
 
+const GOAL_SECONDS = 10 * 3600 // 10 hours
+const MILESTONES_H = [2, 4, 6, 8, 10]
+
 export default function ChatPage() {
   const router = useRouter()
   const [problem, setProblem] = useState('')
@@ -20,6 +23,7 @@ export default function ChatPage() {
   const [clockState, setClockState] = useState(null)
   const [pendingCheckinType, setPendingCheckinType] = useState(null)
   const [problemsCompleted, setProblemsCompleted] = useState(0)
+  const [cumulativeSeconds, setCumulativeSeconds] = useState(0)
   const [celebrating, setCelebrating] = useState(false)
 
   const scrollRef = useRef(null)
@@ -33,15 +37,25 @@ export default function ChatPage() {
     })
   }, [router])
 
-  // Load initial problems_completed count
+  // Load initial progress on mount
   useEffect(() => {
     fetch('/api/progress')
       .then((r) => r.json())
-      .then((d) => setProblemsCompleted(Number(d.problemsCompleted || 0)))
+      .then((d) => {
+        setProblemsCompleted(Number(d.problemsCompleted || 0))
+        setCumulativeSeconds(Number(d.cumulativeEngagedSeconds || 0))
+      })
       .catch(() => {})
   }, [])
 
-  // Idle check-in polling — runs every 30 s while the chat page is open.
+  // Keep cumulativeSeconds in sync with clockState updates from the API
+  useEffect(() => {
+    if (clockState?.cumulativeEngagedSeconds != null) {
+      setCumulativeSeconds(Number(clockState.cumulativeEngagedSeconds))
+    }
+  }, [clockState])
+
+  // Idle check-in polling
   useEffect(() => {
     const id = setInterval(() => {
       if (!clockState || pendingCheckinType) return
@@ -64,7 +78,7 @@ export default function ChatPage() {
     return () => clearInterval(id)
   }, [clockState, pendingCheckinType, problem, problemPending])
 
-  // Keep the conversation pinned to the latest message.
+  // Scroll to latest message
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
@@ -91,12 +105,10 @@ export default function ChatPage() {
     setError('')
     setSending(true)
 
-    // After a problem is solved, the next message starts a fresh problem.
     const isNewProblem = !problem || problemComplete
 
     if (isNewProblem) {
       if (problemComplete) {
-        // Clear all per-problem state before starting fresh
         setProblemComplete(false)
         setProblem('')
         setAttemptId(null)
@@ -162,7 +174,6 @@ export default function ChatPage() {
         if (!data.clockState.pendingCheckinType) setPendingCheckinType(null)
       }
 
-      // Problem completion — celebrate and update local counter
       if (data.isProblemComplete) {
         setProblemComplete(true)
         setProblemsCompleted((n) => n + 1)
@@ -189,32 +200,27 @@ export default function ChatPage() {
 
   return (
     <div className="h-[100dvh] flex flex-col bg-paper">
-      {/* Confetti overlay */}
       <Confetti active={celebrating} />
 
       {/* App header */}
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center justify-between">
           <span className="font-serif text-sm text-ink">AI Tutoring Study</span>
-
-          <div className="flex items-center gap-4">
-            {/* Problems solved counter */}
-            <div className="flex items-center gap-1.5 text-xs font-medium text-muted" aria-live="polite">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>{problemsCompleted === 1 ? '1 solved' : `${problemsCompleted} solved`}</span>
-            </div>
-
-            <button
-              onClick={() => router.push('/login')}
-              className="text-xs font-medium text-muted hover:text-ink transition-colors"
-            >
-              End session
-            </button>
-          </div>
+          <button
+            onClick={() => router.push('/login')}
+            className="text-xs font-medium text-muted hover:text-ink transition-colors"
+          >
+            End session
+          </button>
         </div>
       </header>
+
+      {/* ── Hero progress bar ── */}
+      <HeroProgressBar
+        cumulativeSeconds={cumulativeSeconds}
+        problemsCompleted={problemsCompleted}
+        problemComplete={problemComplete}
+      />
 
       {/* Sticky, collapsible problem card */}
       <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
@@ -235,14 +241,8 @@ export default function ChatPage() {
                 <span className="eyebrow">{problemComplete ? 'Solved!' : 'Problem'}</span>
               </div>
               <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                 aria-hidden="true"
                 className={`text-muted transition-transform ${problemOpen ? 'rotate-180' : ''}`}
               >
@@ -294,10 +294,7 @@ export default function ChatPage() {
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value)
-              autoGrow()
-            }}
+            onChange={(e) => { setInput(e.target.value); autoGrow() }}
             onKeyDown={onKeyDown}
             rows={1}
             placeholder={
@@ -327,6 +324,69 @@ export default function ChatPage() {
   )
 }
 
+// ─── Hero Progress Bar ────────────────────────────────────────────────────────
+
+function HeroProgressBar({ cumulativeSeconds, problemsCompleted, problemComplete }) {
+  const pct = Math.min(100, (cumulativeSeconds / GOAL_SECONDS) * 100)
+  const timeLabel = formatEngagedTime(cumulativeSeconds)
+  const done = cumulativeSeconds >= GOAL_SECONDS
+
+  return (
+    <div className="shrink-0 bg-surface border-b border-line">
+      <div className="max-w-2xl mx-auto px-4 py-3">
+        {/* Top row: big time + solved counter */}
+        <div className="flex items-baseline justify-between mb-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-medium text-ink tabular-nums">{timeLabel}</span>
+            <span className="text-xs text-muted">/ 10 hours</span>
+          </div>
+
+          {/* Solved counter — always visible, highlighted post-solve */}
+          <div className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${problemComplete ? 'text-emerald-600' : 'text-muted'}`} aria-live="polite">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <span>{problemsCompleted === 1 ? '1 problem solved' : `${problemsCompleted} problems solved`}</span>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="relative h-2.5 rounded-full overflow-hidden bg-faint" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={`${timeLabel} of 10 hours completed`}>
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${pct}%`,
+              background: done
+                ? 'linear-gradient(90deg, #10b981, #059669)'
+                : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+            }}
+          />
+        </div>
+
+        {/* Milestone markers */}
+        <div className="flex justify-between mt-1.5">
+          {MILESTONES_H.map((h) => {
+            const reached = cumulativeSeconds >= h * 3600
+            const isGoal = h === 10
+            return (
+              <span
+                key={h}
+                className={`text-[10px] font-medium transition-colors ${
+                  reached
+                    ? isGoal ? 'text-emerald-600' : 'text-primary'
+                    : 'text-faint'
+                }`}
+              >
+                {isGoal ? `${h}h 🎓` : reached ? `${h}h ✓` : `${h}h`}
+              </span>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Confetti ────────────────────────────────────────────────────────────────
 
 function Confetti({ active }) {
@@ -341,7 +401,7 @@ function Confetti({ active }) {
         size: Math.round(6 + Math.random() * 8),
         round: i % 3 !== 0,
       })),
-    [] // generate once on mount, reuse across active/inactive cycles
+    []
   )
 
   if (!active) return null
@@ -374,6 +434,16 @@ function Confetti({ active }) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatEngagedTime(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h === 0 && m === 0) return '0m'
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
+}
 
 async function readJsonResponse(response) {
   const text = await response.text()
