@@ -1,0 +1,64 @@
+topic_id,topic,band,level,question,answer,source
+linear-equations,Linear Equations,8-9,easy,Solve: 2x + 3 = 11,x = 4,reviewed_generated
+linear-equations,Linear Equations,8-9,easy,Solve: 5x − 7 = 18,x = 5,reviewed_generated
+linear-equations,Linear Equations,8-9,easy,Solve: x/3 + 2 = 7,x = 15,reviewed_generated
+linear-equations,Linear Equations,8-9,medium,Solve: 3(x + 4) = 2x + 20,x = 8,reviewed_generated
+linear-equations,Linear Equations,8-9,medium,Solve: (2x − 1)/3 = 5,x = 8,reviewed_generated
+linear-equations,Linear Equations,8-9,medium,Two numbers differ by 6 and add up to 40. Find the numbers.,17 and 23,reviewed_generated
+linear-equations,Linear Equations,8-9,challenge,A two-digit number has digits that add up to 9. Reversing its digits increases the number by 27. Find the number.,36,reviewed_generated
+linear-equations,Linear Equations,8-9,challenge,Solve: (x + 2)/4 − (x − 1)/6 = 1,x = 4,reviewed_generated
+linear-equations,Linear Equations,8-9,challenge,"A is twice as old as B. Five years ago, A was three times as old as B. Find their present ages.","A = 20, B = 10",reviewed_generated
+exponents,Exponents & Powers,8-9,easy,Find the value of 2^5.,32,reviewed_generated
+exponents,Exponents & Powers,8-9,easy,Simplify: 3^2 × 3^3,3^5 = 243,reviewed_generated
+exponents,Exponents & Powers,8-9,easy,What is the value of 10^0?,1,reviewed_generated
+exponents,Exponents & Powers,8-9,medium,Simplify: (2^3)^2,64,reviewed_generated
+exponents,Exponents & Powers,8-9,medium,Find the value of 5^−2.,1/25,reviewed_generated
+exponents,Exponents & Powers,8-9,medium,Express 0.00042 in standard form.,4.2 × 10^−4,reviewed_generated
+exponents,Exponents & Powers,8-9,challenge,Simplify: (2^4 × 2^6) ÷ 2^8,4,reviewed_generated
+exponents,Exponents & Powers,8-9,challenge,"If 2^x = 64, find x.",x = 6,reviewed_generated
+exponents,Exponents & Powers,8-9,challenge,Find the value of (3/4)^−2.,16/9,reviewed_generated
+polynomials,Polynomials & Factoring,8-9,easy,Add: (3x + 5) + (2x − 3),5x + 2,reviewed_generated
+polynomials,Polynomials & Factoring,8-9,easy,Multiply: 4x × 3x^2,12x^3,reviewed_generated
+polynomials,Polynomials & Factoring,8-9,easy,Factorise: 6x + 9,3(2x + 3),reviewed_generated
+polynomials,Polynomials & Factoring,8-9,medium,Expand: (x + 3)(x + 5),x^2 + 8x + 15,reviewed_generated
+polynomials,Polynomials & Factoring,8-9,medium,Factorise: x^2 − 25,(x − 5)(x + 5),reviewed_generated
+polynomials,Polynomials & Factoring,8-9,medium,Factorise: x^2 + 7x + 12,(x + 3)(x + 4),reviewed_generated
+polynomials,Polynomials & Factoring,8-9,challenge,Factorise: 2x^2 + 7x + 3,(2x + 1)(x + 3),reviewed_generated
+polynomials,Polynomials & Factoring,8-9,challenge,"If x + 1/x = 4, find the value of x^2 + 1/x^2.",14,reviewed_generated
+polynomials,Polynomials & Factoring,8-9,challenge,Expand and simplify: (x + 2)^2 − (x − 2)^2,8x,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,easy,Two angles of a triangle are 65° and 45°. Find the third angle.,70°,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,easy,A right triangle has legs 3 cm and 4 cm. Find the hypotenuse.,5 cm,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,easy,What is the measure of each angle of an equilateral triangle?,60°,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,medium,A right triangle has hypotenuse 13 cm and one leg 5 cm. Find the other leg.,12 cm,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,medium,An exterior angle of a triangle is 110° and one interior opposite angle is 60°. Find the other interior opposite angle.,50°,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,medium,The angles of a triangle are in the ratio 2 : 3 : 4. Find all three angles.,"40°, 60°, 80°",reviewed_generated
+triangles-circles,Triangles & Circles,8-9,challenge,A 10 m ladder leans against a wall with its foot 6 m from the wall. How high up the wall does it reach?,8 m,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,challenge,In an isosceles triangle the vertex angle is 40°. Find each base angle.,70°,reviewed_generated
+triangles-circles,Triangles & Circles,8-9,challenge,What is the measure of an angle drawn in a semicircle (subtended by the diameter)?,90°,reviewed_generated
+mensuration,Surface Area & Volume,8-9,easy,Find the volume of a cube with side 4 cm.,64 cm³,reviewed_generated
+mensuration,Surface Area & Volume,8-9,easy,Find the volume of a cuboid 5 cm × 3 cm × 2 cm.,30 cm³,reviewed_generated
+mensuration,Surface Area & Volume,8-9,easy,Find the total surface area of a cube with side 3 cm.,54 cm²,reviewed_generated
+mensuration,Surface Area & Volume,8-9,medium,Find the total surface area of a cuboid 4 cm × 3 cm × 2 cm.,52 cm²,reviewed_generated
+mensuration,Surface Area & Volume,8-9,medium,Find the volume of a cylinder with radius 7 cm and height 10 cm. (Use π = 22/7),1540 cm³,reviewed_generated
+mensuration,Surface Area & Volume,8-9,medium,A cube has a volume of 125 cm³. Find the length of one side.,5 cm,reviewed_generated
+mensuration,Surface Area & Volume,8-9,challenge,How many cubes of side 2 cm can fit exactly inside a box measuring 6 cm × 4 cm × 2 cm?,6,reviewed_generated
+mensuration,Surface Area & Volume,8-9,challenge,Find the curved surface area of a cylinder with radius 7 cm and height 15 cm. (Use π = 22/7),660 cm²,reviewed_generated
+mensuration,Surface Area & Volume,8-9,challenge,A cuboid-shaped tank measures 2 m × 1.5 m × 1 m. How many litres of water can it hold? (1 m³ = 1000 L),3000 litres,reviewed_generated
+probability-stats,Probability & Statistics,8-9,easy,A fair coin is tossed once. What is the probability of getting heads?,1/2,reviewed_generated
+probability-stats,Probability & Statistics,8-9,easy,A die is rolled once. What is the probability of getting an even number?,1/2,reviewed_generated
+probability-stats,Probability & Statistics,8-9,easy,"Find the mean of 5, 10, 15.",10,reviewed_generated
+probability-stats,Probability & Statistics,8-9,medium,A bag contains 3 red and 5 blue balls. One ball is drawn at random. What is the probability it is red?,3/8,reviewed_generated
+probability-stats,Probability & Statistics,8-9,medium,Cards numbered 1 to 10 are shuffled and one is drawn. What is the probability of drawing a multiple of 3?,3/10,reviewed_generated
+probability-stats,Probability & Statistics,8-9,medium,"Find the median of 12, 5, 8, 15, 10.",10,reviewed_generated
+probability-stats,Probability & Statistics,8-9,challenge,Two fair coins are tossed together. What is the probability of getting exactly one head?,1/2,reviewed_generated
+probability-stats,Probability & Statistics,8-9,challenge,"The mean of 10 numbers is 20. If each number is increased by 5, what is the new mean?",25,reviewed_generated
+probability-stats,Probability & Statistics,8-9,challenge,Two dice are rolled together. What is the probability that the sum is 7?,1/6,reviewed_generated
+money-problems,Money Problems,8-9,easy,An item is bought for 200 and sold for 250. Find the profit.,50,reviewed_generated
+money-problems,Money Problems,8-9,easy,Find the simple interest on 1000 at 5% per year for 2 years.,100,reviewed_generated
+money-problems,Money Problems,8-9,easy,A 10% discount is given on a marked price of 450. How much does the customer pay?,405,reviewed_generated
+money-problems,Money Problems,8-9,medium,An item bought for 400 is sold for 460. Find the profit percentage.,15%,reviewed_generated
+money-problems,Money Problems,8-9,medium,Find the simple interest on 2500 at 8% per year for 3 years.,600,reviewed_generated
+money-problems,Money Problems,8-9,medium,An item is sold for 540 at a loss of 10%. Find the cost price.,600,reviewed_generated
+money-problems,Money Problems,8-9,challenge,Successive discounts of 20% and then 10% are given on a marked price of 500. Find the final price.,360,reviewed_generated
+money-problems,Money Problems,8-9,challenge,In how many years will 4000 grow to 5000 at 5% per year simple interest?,5 years,reviewed_generated
+money-problems,Money Problems,8-9,challenge,The cost price of 12 items equals the selling price of 10 items. Find the profit percentage.,20%,reviewed_generated

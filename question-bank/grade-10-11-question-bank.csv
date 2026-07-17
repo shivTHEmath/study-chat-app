@@ -1,0 +1,64 @@
+topic_id,topic,band,level,question,answer,source
+quadratics,Quadratic Equations,10-11,easy,Solve: x^2 = 49,x = 7 or x = −7,reviewed_generated
+quadratics,Quadratic Equations,10-11,easy,Solve: x^2 − 5x = 0,x = 0 or x = 5,reviewed_generated
+quadratics,Quadratic Equations,10-11,easy,Solve: x^2 − 9 = 0,x = 3 or x = −3,reviewed_generated
+quadratics,Quadratic Equations,10-11,medium,Solve: x^2 − 7x + 12 = 0,x = 3 or x = 4,reviewed_generated
+quadratics,Quadratic Equations,10-11,medium,Solve: x^2 + 2x − 15 = 0,x = −5 or x = 3,reviewed_generated
+quadratics,Quadratic Equations,10-11,medium,Find the discriminant of x^2 − 6x + 9 = 0. What does it tell you about the roots?,0; roots are real and equal,reviewed_generated
+quadratics,Quadratic Equations,10-11,challenge,Solve: 2x^2 − 5x − 3 = 0,x = 3 or x = −1/2,reviewed_generated
+quadratics,Quadratic Equations,10-11,challenge,"Without solving, find the sum and product of the roots of x^2 − 8x + 5 = 0.","Sum = 8, product = 5",reviewed_generated
+quadratics,Quadratic Equations,10-11,challenge,The product of two consecutive positive integers is 156. Find the integers.,12 and 13,reviewed_generated
+systems-equations,Systems of Equations,10-11,easy,Solve: x + y = 10 and x − y = 4,"x = 7, y = 3",reviewed_generated
+systems-equations,Systems of Equations,10-11,easy,Solve: y = 2x and x + y = 12,"x = 4, y = 8",reviewed_generated
+systems-equations,Systems of Equations,10-11,easy,Solve: 2x + y = 7 and y = 1,"x = 3, y = 1",reviewed_generated
+systems-equations,Systems of Equations,10-11,medium,Solve: 2x + 3y = 12 and x − y = 1,"x = 3, y = 2",reviewed_generated
+systems-equations,Systems of Equations,10-11,medium,Solve: x + 2y = 8 and 2x − y = 6,"x = 4, y = 2",reviewed_generated
+systems-equations,Systems of Equations,10-11,medium,Two pens and three pencils cost 24. One pen and two pencils cost 14. Find the cost of one pen and one pencil.,"Pen = 6, pencil = 4",reviewed_generated
+systems-equations,Systems of Equations,10-11,challenge,Solve: 3x − 2y = 5 and 2x + 5y = 16,"x = 3, y = 2",reviewed_generated
+systems-equations,Systems of Equations,10-11,challenge,The digits of a two-digit number add up to 11. Reversing the digits gives a number 27 more than the original. Find the number.,47,reviewed_generated
+systems-equations,Systems of Equations,10-11,challenge,A boat travels 30 km downstream in 2 hours and returns upstream in 3 hours. Find the speed of the boat in still water and the speed of the stream.,"Boat = 12.5 km/h, stream = 2.5 km/h",reviewed_generated
+trigonometry,Trigonometry,10-11,easy,Find the value of sin 30°.,1/2,reviewed_generated
+trigonometry,Trigonometry,10-11,easy,Find the value of tan 45°.,1,reviewed_generated
+trigonometry,Trigonometry,10-11,easy,Find the value of cos 60°.,1/2,reviewed_generated
+trigonometry,Trigonometry,10-11,medium,"If sin θ = 3/5 and θ is acute, find cos θ.",4/5,reviewed_generated
+trigonometry,Trigonometry,10-11,medium,Evaluate: sin^230° + cos^230°,1,reviewed_generated
+trigonometry,Trigonometry,10-11,medium,Evaluate: tan 30° × tan 60°,1,reviewed_generated
+trigonometry,Trigonometry,10-11,challenge,"From a point 60 m from the base of a tower, the angle of elevation of the top is 30°. Find the height of the tower.",20√3 m (≈ 34.6 m),reviewed_generated
+trigonometry,Trigonometry,10-11,challenge,"If tan θ = 1 and θ is acute, find sin θ + cos θ.",√2,reviewed_generated
+trigonometry,Trigonometry,10-11,challenge,Evaluate: sin 60° cos 30° + cos 60° sin 30°,1,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,easy,"Find the distance between (0, 0) and (3, 4).",5,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,easy,"In which quadrant does the point (−2, 5) lie?",Second quadrant,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,easy,"Find the midpoint of (2, 4) and (6, 8).","(4, 6)",reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,medium,"Find the distance between (1, 2) and (7, 10).",10,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,medium,"Find the slope of the line through (2, 3) and (6, 11).",2,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,medium,"Find the point on the x-axis equidistant from (2, −5) and (−2, 9).","(−7, 0)",reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,challenge,"A triangle has vertices (0, 0), (4, 0) and (4, 3). Find its perimeter.",12,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,challenge,"The distance between (3, y) and (3, −2) is 7. Find the possible values of y.",y = 5 or y = −9,reviewed_generated
+coordinate-geometry,Coordinate Geometry,10-11,challenge,"In what ratio does the point (2, 5) divide the line segment from (1, 3) to (4, 9)?",1 : 2,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,easy,"If f(x) = 2x + 3, find f(4).",11,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,easy,"If f(x) = x^2, find f(−3).",9,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,easy,What is the y-intercept of the line y = 3x − 2?,−2,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,medium,"If f(x) = x^2 − 2x, find f(5).",15,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,medium,State the slope and y-intercept of y = −2x + 7.,"Slope = −2, y-intercept = 7",reviewed_generated
+functions-graphs,Functions & Graphs,10-11,medium,"If f(x) = 3x − 1 and f(a) = 14, find a.",a = 5,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,challenge,"If f(x) = 2x + 1 and g(x) = x^2, find f(g(3)).",19,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,challenge,State the domain of f(x) = 1/(x − 4).,All real numbers except x = 4,reviewed_generated
+functions-graphs,Functions & Graphs,10-11,challenge,"If f(x) = 2^x, find f(0) + f(1) + f(2) + f(3).",15,reviewed_generated
+sequences-series,Sequences & Series,10-11,easy,"Find the next term: 3, 7, 11, 15, …",19,reviewed_generated
+sequences-series,Sequences & Series,10-11,easy,"Find the next term: 2, 6, 18, 54, …",162,reviewed_generated
+sequences-series,Sequences & Series,10-11,easy,"Find the common difference of 12, 9, 6, 3, …",−3,reviewed_generated
+sequences-series,Sequences & Series,10-11,medium,"Find the 15th term of the arithmetic sequence 7, 10, 13, …",49,reviewed_generated
+sequences-series,Sequences & Series,10-11,medium,Find the sum of the first 20 natural numbers.,210,reviewed_generated
+sequences-series,Sequences & Series,10-11,medium,"Which term of the sequence 5, 8, 11, … is 62?",20th term,reviewed_generated
+sequences-series,Sequences & Series,10-11,challenge,Find the sum of the first 15 terms of an arithmetic sequence with first term 3 and common difference 5.,570,reviewed_generated
+sequences-series,Sequences & Series,10-11,challenge,"Three numbers in arithmetic progression add up to 27, and the product of the first and last is 65. Find the numbers.","5, 9, 13",reviewed_generated
+sequences-series,Sequences & Series,10-11,challenge,In a geometric sequence the first term is 2 and the 4th term is 54. Find the common ratio.,3,reviewed_generated
+statistics,Statistics,10-11,easy,"Find the mean of 6, 8, 10, 12, 14.",10,reviewed_generated
+statistics,Statistics,10-11,easy,"Find the mode of 2, 3, 3, 4, 5, 3.",3,reviewed_generated
+statistics,Statistics,10-11,easy,"Find the median of 5, 1, 9.",5,reviewed_generated
+statistics,Statistics,10-11,medium,Find the mean of the first 10 natural numbers.,5.5,reviewed_generated
+statistics,Statistics,10-11,medium,"The mean of 5 observations is 18. Four of them are 15, 20, 22 and 12. Find the fifth.",21,reviewed_generated
+statistics,Statistics,10-11,medium,"Find the median of 3, 8, 12, 5, 10, 15.",9,reviewed_generated
+statistics,Statistics,10-11,challenge,The mean of 20 numbers is 45. It is later found that one number was read as 25 instead of 52. Find the correct mean.,46.35,reviewed_generated
+statistics,Statistics,10-11,challenge,"The mean of x, x + 2, x + 4, x + 6 and x + 8 is 11. Find x.",x = 7,reviewed_generated
+statistics,Statistics,10-11,challenge,"Using the relation mode = 3(median) − 2(mean), find the mode when the median is 20 and the mean is 18.",24,reviewed_generated
