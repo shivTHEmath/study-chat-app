@@ -30,6 +30,10 @@ export default function ChatPage() {
   const [nextHintAt, setNextHintAt] = useState(null)      // ISO string — when next hint unlocks
   const [hintAllowed, setHintAllowed] = useState(false)   // true = hint can be requested now
   const [hintsExhausted, setHintsExhausted] = useState(false)
+  const [topicBands, setTopicBands] = useState([])        // tiles from /api/suggest GET
+  const [activeTopic, setActiveTopic] = useState(null)    // topic the kid tapped
+  const [suggestions, setSuggestions] = useState(null)    // 3 problems from the bank
+  const [suggestLoading, setSuggestLoading] = useState(false)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
@@ -62,6 +66,10 @@ export default function ChatPage() {
       })
       .catch(() => {})
     fetchRanking()
+    fetch('/api/suggest')
+      .then((r) => r.json())
+      .then((d) => setTopicBands(d.bands || []))
+      .catch(() => {})
   }, [fetchRanking])
 
   // Refresh ranking after each problem solved (time goes up → rank may change)
@@ -139,6 +147,9 @@ export default function ChatPage() {
       setNextHintAt(null)
       setHintAllowed(false)
       setHintsExhausted(false)
+      // Typing your own problem dismisses the topic picker
+      setActiveTopic(null)
+      setSuggestions(null)
       setProblemPending(true)
       setProblemOpen(true)
       setInput('')
@@ -164,6 +175,52 @@ export default function ChatPage() {
       })
     }
 
+    setSending(false)
+  }
+
+  // Fetches 3 bank questions (easy/medium/challenge) for a tapped topic.
+  async function chooseTopic(topic) {
+    setActiveTopic(topic)
+    setSuggestLoading(true)
+    setSuggestions(null)
+    try {
+      const r = await fetch('/api/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topicId: topic.id }),
+      })
+      const d = await r.json()
+      setSuggestions(Array.isArray(d.problems) && d.problems.length ? d.problems : null)
+    } catch {
+      setSuggestions(null)
+    }
+    setSuggestLoading(false)
+  }
+
+  // Starts a suggested question as a normal new problem.
+  async function startSuggested(text) {
+    if (sending) return
+    setError('')
+    setSending(true)
+    if (problemComplete) {
+      setProblemComplete(false)
+      setProblem('')
+      setAttemptId(null)
+      setMessages([])
+    }
+    setNextHintAt(null)
+    setHintAllowed(false)
+    setHintsExhausted(false)
+    setActiveTopic(null)
+    setSuggestions(null)
+    setProblemPending(true)
+    setProblemOpen(true)
+    await requestTutorMessage({
+      problemText: text,
+      studentMessage: text,
+      phase: 'new_problem',
+      nextMessages: [],
+    })
     setSending(false)
   }
 
@@ -321,6 +378,18 @@ export default function ChatPage() {
           {messages.map((m, i) => (
             <Message key={i} role={m.role} text={m.text} />
           ))}
+          {((!problem && !problemPending) || problemComplete) && !sending && (
+            <TopicPicker
+              bands={topicBands}
+              activeTopic={activeTopic}
+              suggestions={suggestions}
+              loading={suggestLoading}
+              onTopic={chooseTopic}
+              onProblem={startSuggested}
+              onRefresh={() => chooseTopic(activeTopic)}
+              onBack={() => { setActiveTopic(null); setSuggestions(null) }}
+            />
+          )}
           {sending && <TypingIndicator />}
           {error && (
             <div className="rounded-md border border-danger/30 bg-surface px-3 py-2 text-sm text-danger">
@@ -520,6 +589,101 @@ function NeighborhoodPanel({ neighborhood, rankTotal }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Topic Picker ────────────────────────────────────────────────────────────
+
+const LEVEL_STYLES = {
+  easy: { label: 'Easy', color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+  medium: { label: 'Medium', color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+  challenge: { label: 'Challenge', color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+}
+
+function TopicPicker({ bands, activeTopic, suggestions, loading, onTopic, onProblem, onRefresh, onBack }) {
+  if (!bands.length) return null
+
+  // Screen 2: a topic is chosen — show the 3 suggested problems
+  if (activeTopic) {
+    return (
+      <div className="card px-4 py-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-medium text-ink">
+            {activeTopic.icon} {activeTopic.label}
+          </p>
+          <button type="button" onClick={onBack} className="text-xs font-medium text-muted hover:text-ink transition-colors">
+            ← Topics
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-muted py-3">Finding good problems for you…</p>
+        ) : suggestions ? (
+          <>
+            <p className="text-xs text-muted mb-2">Pick one to start:</p>
+            <div className="flex flex-col gap-2">
+              {suggestions.map((s, i) => {
+                const st = LEVEL_STYLES[s.level] || LEVEL_STYLES.medium
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onProblem(s.text)}
+                    className="text-left rounded-xl px-3.5 py-2.5 transition-transform hover:scale-[1.01] active:scale-[0.99]"
+                    style={{ background: st.bg, border: `1px solid ${st.border}` }}
+                  >
+                    <span className="block text-[11px] font-semibold mb-0.5" style={{ color: st.color }}>
+                      {st.label}
+                    </span>
+                    <span className="block text-sm text-ink leading-snug">
+                      <MathText text={s.text} />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-center mt-3">
+              <button type="button" onClick={onRefresh} className="text-xs font-medium text-primary hover:underline">
+                ↻ Show 3 different ones
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted py-3">
+            Couldn't load problems for this topic. Try another topic, or type your own problem below.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // Screen 1: topic tiles (grouped by grade band when grade is unknown)
+  return (
+    <div className="card px-4 py-4">
+      <p className="text-sm font-medium text-ink mb-0.5">What do you want to practice today?</p>
+      <p className="text-xs text-muted mb-3">Pick a topic — I'll give you a problem. Or type your own below.</p>
+
+      {bands.map((b) => (
+        <div key={b.band} className="mb-3 last:mb-0">
+          {bands.length > 1 && (
+            <p className="text-[10px] font-semibold text-muted uppercase tracking-wide mb-1.5">{b.label}</p>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {b.topics.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onTopic({ ...t, band: b.band })}
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:border-primary hover:text-primary transition-colors"
+              >
+                <span aria-hidden="true">{t.icon}</span>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
