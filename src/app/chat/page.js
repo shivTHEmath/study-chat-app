@@ -27,6 +27,9 @@ export default function ChatPage() {
   const [celebrating, setCelebrating] = useState(false)
   const [neighborhood, setNeighborhood] = useState([])
   const [rankTotal, setRankTotal] = useState(0)
+  const [nextHintAt, setNextHintAt] = useState(null)      // ISO string — when next hint unlocks
+  const [hintAllowed, setHintAllowed] = useState(false)   // true = hint can be requested now
+  const [hintsExhausted, setHintsExhausted] = useState(false)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
@@ -132,6 +135,10 @@ export default function ChatPage() {
         setAttemptId(null)
         setMessages([])
       }
+      // Reset hint state for the new problem
+      setNextHintAt(null)
+      setHintAllowed(false)
+      setHintsExhausted(false)
       setProblemPending(true)
       setProblemOpen(true)
       setInput('')
@@ -196,6 +203,15 @@ export default function ChatPage() {
         setProblemComplete(true)
         setProblemsCompleted((n) => n + 1)
         setCelebrating(true)
+        setNextHintAt(null)
+        setHintAllowed(false)
+      }
+
+      // Sync hint countdown from every API response
+      if (!data.isProblemComplete) {
+        setHintAllowed(Boolean(data.hintAllowed))
+        setHintsExhausted(Boolean(data.hintsExhausted))
+        setNextHintAt(data.nextHintAvailableAt ?? null)
       }
 
       if (data.message) {
@@ -289,6 +305,15 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {/* Hint countdown strip — visible only during an active problem */}
+      {problem && !problemComplete && (
+        <HintCountdown
+          nextHintAt={nextHintAt}
+          hintAllowed={hintAllowed}
+          hintsExhausted={hintsExhausted}
+        />
+      )}
 
       {/* Conversation */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
@@ -495,6 +520,77 @@ function NeighborhoodPanel({ neighborhood, rankTotal }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Hint Countdown Strip ────────────────────────────────────────────────────
+
+function HintCountdown({ nextHintAt, hintAllowed, hintsExhausted }) {
+  const [secondsLeft, setSecondsLeft] = useState(0)
+
+  useEffect(() => {
+    if (hintAllowed || hintsExhausted || !nextHintAt) {
+      setSecondsLeft(0)
+      return
+    }
+    const tick = () => {
+      setSecondsLeft(Math.max(0, Math.ceil((new Date(nextHintAt) - Date.now()) / 1000)))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [nextHintAt, hintAllowed, hintsExhausted])
+
+  // Nothing to show until we've had at least one API response with hint info
+  if (!hintAllowed && !nextHintAt && !hintsExhausted) return null
+
+  if (hintsExhausted) {
+    return (
+      <div className="shrink-0 border-b border-line bg-paper">
+        <div className="max-w-2xl mx-auto px-4 py-1.5 flex items-center gap-2">
+          <span className="text-[10px] text-faint">No more hints for this problem — keep working, you're close!</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (hintAllowed) {
+    return (
+      <div className="shrink-0 border-b border-line" style={{ background: '#f0fdf4' }}>
+        <div className="max-w-2xl mx-auto px-4 py-1.5 flex items-center gap-2">
+          <span className="text-sm">💡</span>
+          <span className="text-[11px] font-medium" style={{ color: '#15803d' }}>
+            Hint ready — type <strong>hint</strong> to get one
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  if (!secondsLeft) return null
+
+  const m = Math.floor(secondsLeft / 60)
+  const s = secondsLeft % 60
+  const timeStr = m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`
+
+  // Progress ring: fill proportional to how far through the delay we are.
+  // We don't know total delay here, so use a simple pulsing dot instead.
+  return (
+    <div className="shrink-0 border-b border-line bg-paper">
+      <div className="max-w-2xl mx-auto px-4 py-1.5 flex items-center gap-2">
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full"
+          style={{ background: '#f59e0b', animation: 'hint-pulse 1s ease-in-out infinite' }}
+          aria-hidden="true"
+        />
+        <style>{`@keyframes hint-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+        <span className="text-[11px] text-muted">
+          Next hint available in{' '}
+          <span className="font-semibold text-ink tabular-nums">{timeStr}</span>
+          {' '}— keep working on the problem!
+        </span>
+      </div>
     </div>
   )
 }
