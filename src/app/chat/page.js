@@ -25,6 +25,8 @@ export default function ChatPage() {
   const [problemsCompleted, setProblemsCompleted] = useState(0)
   const [cumulativeSeconds, setCumulativeSeconds] = useState(0)
   const [celebrating, setCelebrating] = useState(false)
+  const [neighborhood, setNeighborhood] = useState([])
+  const [rankTotal, setRankTotal] = useState(0)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
@@ -37,7 +39,17 @@ export default function ChatPage() {
     })
   }, [router])
 
-  // Load initial progress on mount
+  const fetchRanking = useCallback(() => {
+    fetch('/api/ranking')
+      .then((r) => r.json())
+      .then((d) => {
+        setNeighborhood(d.neighborhood || [])
+        setRankTotal(d.total || 0)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Load initial progress + ranking on mount
   useEffect(() => {
     fetch('/api/progress')
       .then((r) => r.json())
@@ -46,7 +58,13 @@ export default function ChatPage() {
         setCumulativeSeconds(Number(d.cumulativeEngagedSeconds || 0))
       })
       .catch(() => {})
-  }, [])
+    fetchRanking()
+  }, [fetchRanking])
+
+  // Refresh ranking after each problem solved (time goes up → rank may change)
+  useEffect(() => {
+    if (problemsCompleted > 0) fetchRanking()
+  }, [problemsCompleted, fetchRanking])
 
   // Keep cumulativeSeconds in sync with clockState updates from the API
   useEffect(() => {
@@ -215,11 +233,13 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* ── Hero progress bar ── */}
+      {/* ── Hero progress bar + neighborhood ranking ── */}
       <HeroProgressBar
         cumulativeSeconds={cumulativeSeconds}
         problemsCompleted={problemsCompleted}
         problemComplete={problemComplete}
+        neighborhood={neighborhood}
+        rankTotal={rankTotal}
       />
 
       {/* Sticky, collapsible problem card */}
@@ -326,63 +346,140 @@ export default function ChatPage() {
 
 // ─── Hero Progress Bar ────────────────────────────────────────────────────────
 
-function HeroProgressBar({ cumulativeSeconds, problemsCompleted, problemComplete }) {
+function HeroProgressBar({ cumulativeSeconds, problemsCompleted, problemComplete, neighborhood, rankTotal }) {
   const pct = Math.min(100, (cumulativeSeconds / GOAL_SECONDS) * 100)
   const timeLabel = formatEngagedTime(cumulativeSeconds)
   const done = cumulativeSeconds >= GOAL_SECONDS
 
   return (
     <div className="shrink-0 bg-surface border-b border-line">
-      <div className="max-w-2xl mx-auto px-4 py-3">
-        {/* Top row: big time + solved counter */}
-        <div className="flex items-baseline justify-between mb-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl font-medium text-ink tabular-nums">{timeLabel}</span>
-            <span className="text-xs text-muted">/ 10 hours</span>
+      <div className="max-w-2xl mx-auto px-4 py-2 flex gap-4">
+
+        {/* Left half: compact time bar */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between mb-1">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-base font-medium text-ink tabular-nums">{timeLabel}</span>
+              <span className="text-[10px] text-muted">/ 10h</span>
+            </div>
+            <div
+              className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${problemComplete ? 'text-emerald-600' : 'text-muted'}`}
+              aria-live="polite"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>{problemsCompleted} solved</span>
+            </div>
           </div>
 
-          {/* Solved counter — always visible, highlighted post-solve */}
-          <div className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${problemComplete ? 'text-emerald-600' : 'text-muted'}`} aria-live="polite">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            <span>{problemsCompleted === 1 ? '1 problem solved' : `${problemsCompleted} problems solved`}</span>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="relative h-2.5 rounded-full overflow-hidden bg-faint" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={`${timeLabel} of 10 hours completed`}>
           <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${pct}%`,
-              background: done
-                ? 'linear-gradient(90deg, #10b981, #059669)'
-                : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
-            }}
-          />
+            className="relative h-1.5 rounded-full overflow-hidden bg-faint"
+            role="progressbar"
+            aria-valuenow={Math.round(pct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`${timeLabel} of 10 hours completed`}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${pct}%`,
+                background: done
+                  ? 'linear-gradient(90deg, #10b981, #059669)'
+                  : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+              }}
+            />
+          </div>
+
+          <div className="flex justify-between mt-1">
+            {MILESTONES_H.map((h) => {
+              const reached = cumulativeSeconds >= h * 3600
+              const isGoal = h === 10
+              return (
+                <span
+                  key={h}
+                  className={`text-[9px] font-medium transition-colors ${
+                    reached ? (isGoal ? 'text-emerald-600' : 'text-primary') : 'text-faint'
+                  }`}
+                >
+                  {isGoal ? '10h 🎓' : reached ? `${h}h ✓` : `${h}h`}
+                </span>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Milestone markers */}
-        <div className="flex justify-between mt-1.5">
-          {MILESTONES_H.map((h) => {
-            const reached = cumulativeSeconds >= h * 3600
-            const isGoal = h === 10
-            return (
-              <span
-                key={h}
-                className={`text-[10px] font-medium transition-colors ${
-                  reached
-                    ? isGoal ? 'text-emerald-600' : 'text-primary'
-                    : 'text-faint'
-                }`}
-              >
-                {isGoal ? `${h}h 🎓` : reached ? `${h}h ✓` : `${h}h`}
-              </span>
-            )
-          })}
+        {/* Divider */}
+        <div className="w-px bg-line self-stretch" aria-hidden="true" />
+
+        {/* Right half: neighborhood ranking */}
+        <div className="flex-1 min-w-0">
+          <NeighborhoodPanel neighborhood={neighborhood} rankTotal={rankTotal} />
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Neighborhood Ranking Panel ───────────────────────────────────────────────
+
+function NeighborhoodPanel({ neighborhood, rankTotal }) {
+  const myEntry = neighborhood.find((r) => r.isMe)
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[9px] font-medium text-muted uppercase tracking-wide">
+          {myEntry ? `Rank ${myEntry.rank} of ${rankTotal}` : 'Your rank'}
+        </span>
+        <span className="text-[9px] text-faint">by study time</span>
+      </div>
+
+      {neighborhood.length === 0 ? (
+        <p className="text-[10px] text-faint">Loading…</p>
+      ) : (
+        <div className="flex flex-col gap-px">
+          {neighborhood.map((row) => (
+            <div
+              key={row.rank}
+              className="flex items-center gap-1.5"
+              style={row.isMe ? { fontWeight: 600 } : undefined}
+            >
+              <span
+                className="text-[10px] w-4 text-right shrink-0"
+                style={{ color: row.isMe ? 'var(--color-primary, #3b82f6)' : 'var(--color-faint, #ccc)' }}
+              >
+                {row.rank}
+              </span>
+              <span
+                className="text-[10px] flex-1 truncate"
+                style={{ color: row.isMe ? 'var(--color-ink, #111)' : 'var(--color-secondary, #666)' }}
+              >
+                {row.isMe ? (
+                  <>
+                    You{' '}
+                    <span
+                      className="text-[8px] rounded px-1 py-px"
+                      style={{ background: '#dbeafe', color: '#2563eb' }}
+                    >
+                      you
+                    </span>
+                  </>
+                ) : (
+                  `P-${row.slotId}`
+                )}
+              </span>
+              <span
+                className="text-[10px] tabular-nums shrink-0"
+                style={{ color: row.isMe ? 'var(--color-primary, #3b82f6)' : 'var(--color-muted, #999)' }}
+              >
+                {formatEngagedTime(row.seconds)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
