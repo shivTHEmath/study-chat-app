@@ -14,6 +14,7 @@ export default function ChatPage() {
   const [problem, setProblem] = useState('')
   const [problemOpen, setProblemOpen] = useState(true)
   const [problemComplete, setProblemComplete] = useState(false)
+  const [reflectionPending, setReflectionPending] = useState(false) // a reflection prompt is awaiting the student's answer; hold here
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [attemptId, setAttemptId] = useState(null)
@@ -134,7 +135,10 @@ export default function ChatPage() {
     setError('')
     setSending(true)
 
-    const isNewProblem = !problem || problemComplete
+    // A finished problem normally means the next message starts a new one — but
+    // NOT while a reflection prompt is still pending. Then this message is the
+    // student's answer to the reflection, so keep it as a follow-up.
+    const isNewProblem = (!problem || problemComplete) && !reflectionPending
 
     if (isNewProblem) {
       if (problemComplete) {
@@ -256,10 +260,19 @@ export default function ChatPage() {
         if (!data.clockState.pendingCheckinType) setPendingCheckinType(null)
       }
 
+      // Hold the student on the reflection (no picker, no new problem) until the
+      // server says it is resolved. Absent on new-problem responses -> false.
+      setReflectionPending(Boolean(data.reflectionPending))
+
       if (data.isProblemComplete) {
+        // Count + celebrate only the FIRST time an attempt completes. The model
+        // re-reports isProblemComplete on later reflection turns; guarding on the
+        // prior state stops the local counter and confetti from firing twice.
+        if (!problemComplete) {
+          setProblemsCompleted((n) => n + 1)
+          setCelebrating(true)
+        }
         setProblemComplete(true)
-        setProblemsCompleted((n) => n + 1)
-        setCelebrating(true)
         setNextHintAt(null)
         setHintAllowed(false)
       }
@@ -378,7 +391,7 @@ export default function ChatPage() {
           {messages.map((m, i) => (
             <Message key={i} role={m.role} text={m.text} />
           ))}
-          {((!problem && !problemPending) || problemComplete) && !sending && (
+          {((!problem && !problemPending) || problemComplete) && !reflectionPending && !sending && (
             <TopicPicker
               bands={topicBands}
               activeTopic={activeTopic}
