@@ -23,9 +23,16 @@ export async function proxy(request) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // A stale or missing refresh-token cookie makes getUser() throw
+  // `AuthApiError: refresh_token_not_found`. That just means "not logged in",
+  // so treat it as such instead of letting it bubble up and spam the logs.
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data?.user ?? null
+  } catch {
+    user = null
+  }
 
   const { pathname } = request.nextUrl
   const isApi = pathname.startsWith('/api')

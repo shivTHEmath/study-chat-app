@@ -15,6 +15,7 @@ export default function ChatPage() {
   const [problemOpen, setProblemOpen] = useState(true)
   const [problemComplete, setProblemComplete] = useState(false)
   const [reflectionPending, setReflectionPending] = useState(false) // a reflection prompt is awaiting the student's answer; hold here
+  const [assessmentAvailable, setAssessmentAvailable] = useState(false) // a due assessment must be completed before continuing
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [attemptId, setAttemptId] = useState(null)
@@ -70,6 +71,12 @@ export default function ChatPage() {
     fetch('/api/suggest')
       .then((r) => r.json())
       .then((d) => setTopicBands(d.bands || []))
+      .catch(() => {})
+    // A returning student who is already due for an assessment should see the
+    // prompt immediately, without having to trigger a 409 first.
+    fetch('/api/assessments/status')
+      .then((r) => r.json())
+      .then((d) => { if (d.assessmentAvailable) setAssessmentAvailable(true) })
       .catch(() => {})
   }, [fetchRanking])
 
@@ -131,6 +138,8 @@ export default function ChatPage() {
   async function send() {
     const text = input.trim()
     if (!text || sending) return
+    // A due assessment blocks further tutoring — send them to it.
+    if (assessmentAvailable) { router.push('/assessment'); return }
 
     setError('')
     setSending(true)
@@ -204,6 +213,7 @@ export default function ChatPage() {
   // Starts a suggested question as a normal new problem.
   async function startSuggested(text) {
     if (sending) return
+    if (assessmentAvailable) { router.push('/assessment'); return }
     setError('')
     setSending(true)
     if (problemComplete) {
@@ -246,9 +256,24 @@ export default function ChatPage() {
 
       const data = await readJsonResponse(response)
 
+      // Assessment gate — a due assessment must be completed before continuing.
+      // Roll back the optimistically-shown message, restore the typed text so it
+      // is not lost, and surface the assessment banner instead of an error.
+      if (response.status === 409 && data?.assessmentRequired) {
+        setAssessmentAvailable(true)
+        setProblemPending(false)
+        setMessages((m) => (m.length && m[m.length - 1].role === 'user' ? m.slice(0, -1) : m))
+        setInput((cur) => cur || studentMessage)
+        requestAnimationFrame(autoGrow)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(data?.error || 'The tutor could not respond. Please try again.')
       }
+
+      // After a completion turn the server may flag that an assessment is now due.
+      if (data.assessmentAvailable) setAssessmentAvailable(true)
 
       if (phase === 'new_problem' && data.displayProblem) {
         setProblem(data.displayProblem)
@@ -328,6 +353,27 @@ export default function ChatPage() {
         rankTotal={rankTotal}
       />
 
+      {/* Assessment gate — a due assessment must be completed before continuing */}
+      {assessmentAvailable && (
+        <div className="shrink-0 border-b border-line bg-surface">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="eyebrow">Assessment ready</p>
+              <p className="mt-1 text-sm text-muted">
+                Complete a short assessment before continuing.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/assessment')}
+              className="btn btn-primary h-10 px-4 text-sm shrink-0"
+            >
+              Start assessment
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sticky, collapsible problem card */}
       <div className="sticky top-0 z-10 shrink-0 bg-paper border-b border-line">
         <div className="max-w-2xl mx-auto px-4 py-3">
@@ -391,7 +437,7 @@ export default function ChatPage() {
           {messages.map((m, i) => (
             <Message key={i} role={m.role} text={m.text} />
           ))}
-          {((!problem && !problemPending) || problemComplete) && !reflectionPending && !sending && (
+          {((!problem && !problemPending) || problemComplete) && !reflectionPending && !assessmentAvailable && !sending && (
             <TopicPicker
               bands={topicBands}
               activeTopic={activeTopic}
