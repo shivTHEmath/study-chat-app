@@ -9,8 +9,13 @@ export const SURVEY_QUESTIONS = [
     id: 'grade',
     label: 'What grade or standard are you currently in?',
     type: 'scale',
-    min: 7,
+    min: 6,
     max: 10,
+    // Edge options so students outside the core 6-10 range can still answer
+    // accurately. Stored as the literal strings 'Below 6' / 'Above 10';
+    // bandForGrade() parses the digit out of either, so topic bands still work.
+    beforeOption: 'Below 6',
+    afterOption: 'Above 10',
     minLabel: '',
     maxLabel: '',
     allowSkip: true,

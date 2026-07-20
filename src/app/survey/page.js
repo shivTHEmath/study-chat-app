@@ -251,18 +251,24 @@ function QuestionInput({ question, value, onChange, onSelect }) {
   if (question.type === 'scale') {
     const nums = []
     for (let i = question.min; i <= question.max; i++) nums.push(i)
-    const wrap = nums.length > 5
+    // Optional edge choices (e.g. 'Below 6' / 'Above 10') flank the numbers.
+    const entries = [
+      ...(question.beforeOption ? [question.beforeOption] : []),
+      ...nums,
+      ...(question.afterOption ? [question.afterOption] : []),
+    ]
+    const wrap = entries.length > 5
     const pntsSelected = value === 'prefer_not_to_say'
     return (
       <div>
         <div className={wrap ? 'grid grid-cols-4 gap-2 mb-2' : 'flex gap-2 mb-2'}>
-          {nums.map((n) => (
+          {entries.map((n) => (
             <button
               key={n}
               type="button"
               onClick={() => handlePick(n)}
-              className={`choice h-12 flex items-center justify-center font-semibold ${
-                !wrap ? 'flex-1 px-0' : 'px-0'
+              className={`choice h-12 flex items-center justify-center font-semibold text-sm ${
+                !wrap ? 'flex-1 px-0' : 'px-1'
               } ${value === n ? 'choice-selected' : ''}`}
             >
               {n}
