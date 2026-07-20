@@ -721,7 +721,7 @@ function RewardBanner({ cumulativeSeconds, claimed, dimmed, onClaim }) {
       <div className="max-w-2xl mx-auto px-4 py-2 flex items-center gap-2.5">
         <span className="text-base" aria-hidden="true">🎁</span>
         <p className="flex-1 text-xs font-medium leading-snug" style={{ color: '#92400e' }}>
-          Finish 10 hours of study → win a ₹500 / $5 gift voucher + certificate of completion
+          Finish 10 hours of study before July 30 → win a ₹500 / $5 gift voucher + certificate of completion
         </p>
         <span
           className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold tabular-nums"
