@@ -36,15 +36,19 @@ export default function ChatPage() {
   const [activeTopic, setActiveTopic] = useState(null)    // topic the kid tapped
   const [suggestions, setSuggestions] = useState(null)    // 3 problems from the bank
   const [suggestLoading, setSuggestLoading] = useState(false)
+  const [accountEmail, setAccountEmail] = useState('')    // prefill for the claim modal
+  const [rewardClaimed, setRewardClaimed] = useState(false)
+  const [claimOpen, setClaimOpen] = useState(false)
 
   const scrollRef = useRef(null)
   const textareaRef = useRef(null)
 
-  // Client-side auth guard
+  // Client-side auth guard (also captures account email for the claim modal)
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) router.replace('/login')
+      else setAccountEmail(user.email || '')
     })
   }, [router])
 
@@ -77,6 +81,10 @@ export default function ChatPage() {
     fetch('/api/assessments/status')
       .then((r) => r.json())
       .then((d) => { if (d.assessmentAvailable) setAssessmentAvailable(true) })
+      .catch(() => {})
+    fetch('/api/reward')
+      .then((r) => r.json())
+      .then((d) => setRewardClaimed(Boolean(d.claimed)))
       .catch(() => {})
   }, [fetchRanking])
 
@@ -343,6 +351,21 @@ export default function ChatPage() {
           </button>
         </div>
       </header>
+
+      {/* ── Reward banner ── */}
+      <RewardBanner
+        cumulativeSeconds={cumulativeSeconds}
+        claimed={rewardClaimed}
+        dimmed={assessmentAvailable}
+        onClaim={() => setClaimOpen(true)}
+      />
+      {claimOpen && (
+        <ClaimModal
+          accountEmail={accountEmail}
+          onClose={() => setClaimOpen(false)}
+          onClaimed={() => { setRewardClaimed(true); setClaimOpen(false) }}
+        />
+      )}
 
       {/* ── Hero progress bar + neighborhood ranking ── */}
       <HeroProgressBar
@@ -648,6 +671,160 @@ function NeighborhoodPanel({ neighborhood, rankTotal }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Reward Banner + Claim Modal ─────────────────────────────────────────────
+
+function RewardBanner({ cumulativeSeconds, claimed, dimmed, onClaim }) {
+  const done = cumulativeSeconds >= GOAL_SECONDS
+  const remaining = formatEngagedTime(Math.max(0, GOAL_SECONDS - cumulativeSeconds))
+
+  if (claimed) {
+    return (
+      <div className="shrink-0 border-b border-line" style={{ background: '#f0fdf4' }}>
+        <div className="max-w-2xl mx-auto px-4 py-1.5 flex items-center gap-2">
+          <span className="text-sm" aria-hidden="true">✓</span>
+          <span className="text-[11px] font-medium" style={{ color: '#15803d' }}>
+            Reward claimed — your voucher and certificate will arrive within 7 days
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  if (done) {
+    return (
+      <div className="shrink-0 border-b border-line" style={{ background: '#f0fdf4', opacity: dimmed ? 0.55 : 1 }}>
+        <div className="max-w-2xl mx-auto px-4 py-2 flex items-center gap-2.5">
+          <span className="text-base" aria-hidden="true">🎉</span>
+          <p className="flex-1 text-xs font-medium" style={{ color: '#15803d' }}>
+            You did it — 10 hours complete! Claim your ₹500 / $5 gift voucher and certificate.
+          </p>
+          <button
+            type="button"
+            onClick={onClaim}
+            disabled={dimmed}
+            className="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold text-white transition-transform hover:scale-105 active:scale-95 disabled:opacity-50"
+            style={{ background: '#059669' }}
+          >
+            Claim reward
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="shrink-0 border-b border-line" style={{ background: '#fffbeb', opacity: dimmed ? 0.55 : 1 }}>
+      <div className="max-w-2xl mx-auto px-4 py-2 flex items-center gap-2.5">
+        <span className="text-base" aria-hidden="true">🎁</span>
+        <p className="flex-1 text-xs font-medium leading-snug" style={{ color: '#92400e' }}>
+          Finish 10 hours of study → win a ₹500 / $5 gift voucher + certificate of completion
+        </p>
+        <span
+          className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold tabular-nums"
+          style={{ color: '#92400e', borderColor: '#fcd34d' }}
+        >
+          🔒 {remaining} left
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function ClaimModal({ accountEmail, onClose, onClaimed }) {
+  const [email, setEmail] = useState(accountEmail)
+  const [phone, setPhone] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit() {
+    if (submitting) return
+    setError('')
+    if (!email.trim() || !phone.trim()) {
+      setError('Both parent email and phone number are required.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const r = await fetch('/api/reward', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentEmail: email.trim(), parentPhone: phone.trim() }),
+      })
+      const d = await r.json()
+      if (!r.ok && !d.claimed) {
+        setError(d.error || 'Could not record your claim. Please try again.')
+        setSubmitting(false)
+        return
+      }
+      onClaimed()
+    } catch {
+      setError('Could not record your claim. Please try again.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Claim your reward"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-sm rounded-2xl bg-surface border border-line p-5">
+        <p className="text-base font-medium text-ink mb-1">🎁 Claim your reward</p>
+        <p className="text-xs text-muted mb-4">
+          Your ₹500 / $5 gift voucher and certificate of completion will be sent to your
+          parent's contact details below.
+        </p>
+
+        <label className="block text-xs font-medium text-muted mb-1">Parent's email</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="parent@example.com"
+          className="field w-full mb-3"
+        />
+
+        <label className="block text-xs font-medium text-muted mb-1">Parent's phone (for voucher by WhatsApp)</label>
+        <input
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="+91 …"
+          className="field w-full mb-4"
+        />
+
+        {error && <p className="text-xs text-danger mb-3">{error}</p>}
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn flex-1 h-10 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="btn btn-primary flex-1 h-10 text-sm disabled:opacity-60"
+          >
+            {submitting ? 'Sending…' : 'Send my reward'}
+          </button>
+        </div>
+
+        <p className="text-[10px] text-faint text-center mt-3">
+          Rewards are sent within 7 days after verification.
+        </p>
+      </div>
     </div>
   )
 }
