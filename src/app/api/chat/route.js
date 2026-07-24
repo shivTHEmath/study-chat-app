@@ -1167,12 +1167,13 @@ function getHintState(attempt, condition, difficulty) {
   const hintCount = Number(attempt?.hint_count || 0)
   const hasGivenHint = hintCount > 0
 
-  // 80% cap: hints stop once the cumulative AS% would exceed 80.
-  // effectiveAS is already faded (stored in condition.as_value by the caller).
-  // We round down (floor), minimum 1 so every student can get at least one hint.
-  const effectiveAS = Number(condition.as_value) || 30
-  const maxHints = Math.max(1, Math.floor(80 / effectiveAS))
-  const hintsExhausted = hintCount >= maxHints
+  // No reveal cap: hints escalate turn by turn, each landing closer to the
+  // answer, but the tutor never states the final answer or the last decisive
+  // step (enforced in the system prompt). Hints are therefore never
+  // "exhausted"; pacing is still gated by the access delay so they don't all
+  // arrive at once. maxHints is null to signal "no cap" in the runtime context.
+  const maxHints = null
+  const hintsExhausted = false
 
   const nextDelay = hasGivenHint
     ? midProblemDelaySeconds
@@ -1181,8 +1182,8 @@ function getHintState(attempt, condition, difficulty) {
   const secondsSinceReference = referenceTime
     ? Math.max(0, Math.floor((Date.now() - new Date(referenceTime).getTime()) / 1000))
     : 0
-  // Hint is allowed only if the delay has elapsed AND the cap is not reached.
-  const hintAllowed = !hintsExhausted && secondsSinceReference >= nextDelay
+  // Hint is allowed once the access delay has elapsed — no cap gate anymore.
+  const hintAllowed = secondsSinceReference >= nextDelay
   const secondsUntilHint = hintAllowed ? 0 : Math.max(0, nextDelay - secondsSinceReference)
 
   return {

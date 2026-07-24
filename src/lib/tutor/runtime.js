@@ -39,8 +39,6 @@ export function buildRuntimeContext({
   initialHintDelaySeconds,
   midProblemDelaySeconds,
   hintCount,
-  maxHints,
-  hintsExhausted,
   mcpAllowedThisTurn,
   mcpTarget,
   mcpGiven,
@@ -106,8 +104,8 @@ Runtime state:
 - Estimated problem difficulty: ${difficulty || 'unknown'}
 - Hint allowed this turn: ${canHint ? 'true' : 'false'}
 - Hints given so far: ${Math.max(0, Number(hintCount || 0))}
-- Max hints for this problem (80% cap): ${maxHints ?? 'not yet calculated'}
-- All hints exhausted: ${hintsExhausted ? 'true' : 'false'}
+- Hint reveal cap: none — hints escalate toward the answer but NEVER state the final answer or the last decisive step
+- All hints exhausted: false (hints never run out; keep giving the next, closer one)
 - Full solution allowed: ${fullSolutionAllowed ? 'true' : 'false'}
 - Seconds since problem started: ${Math.max(0, Math.round(secondsSinceProblemStarted || 0))}
 - Initial hint delay required: ${initialHintDelaySeconds || 'not yet calculated'} seconds
@@ -120,7 +118,7 @@ Recent conversation:
 ${formatConversation(conversation)}
 
 Instruction for this response:
-${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), hintsExhausted: Boolean(hintsExhausted), mcpAllowedThisTurn: Boolean(mcpAllowedThisTurn), mcpTarget: Number(mcpTarget || 0), mcpGiven: Number(mcpGiven || 0), mcpRemaining: Number(mcpRemaining || 0), difficulty: Number(difficulty || 3), mcpAwaitingAnswer: Boolean(mcpAwaitingAnswer), mcpReaskCount: Number(mcpReaskCount || 0) })}
+${getTurnInstruction({ isNewProblem, hintAllowed: canHint, hintRequestedButDelayed: Boolean(hintRequestedButDelayed), mcpAllowedThisTurn: Boolean(mcpAllowedThisTurn), mcpTarget: Number(mcpTarget || 0), mcpGiven: Number(mcpGiven || 0), mcpRemaining: Number(mcpRemaining || 0), difficulty: Number(difficulty || 3), mcpAwaitingAnswer: Boolean(mcpAwaitingAnswer), mcpReaskCount: Number(mcpReaskCount || 0) })}
 `.trim()
 }
 
@@ -139,7 +137,7 @@ const FLAGS_NOTE = [
   'The JSON line is consumed by the research system and never shown to the student.',
 ].join(' ')
 
-function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, hintsExhausted, mcpAllowedThisTurn, mcpTarget, mcpGiven, mcpRemaining, difficulty, mcpAwaitingAnswer, mcpReaskCount }) {
+function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed, mcpAllowedThisTurn, mcpTarget, mcpGiven, mcpRemaining, difficulty, mcpAwaitingAnswer, mcpReaskCount }) {
   if (isNewProblem) {
     return [
       'The student has submitted a new problem.',
@@ -225,20 +223,6 @@ function getTurnInstruction({ isNewProblem, hintAllowed, hintRequestedButDelayed
       'Do NOT give a hint, any concrete guidance, or mention anything about time or when a hint will be available.',
       'You MAY still verify a step or answer they stated (right/wrong + why) per the rule below — verification is not a hint.',
       'Otherwise respond with a brief, warm message telling them to keep working.',
-      NO_SOCRATIC,
-      VERIFICATION_RULE,
-      mcpGuidance,
-      FLAGS_NOTE,
-    ].join(' ')
-  }
-
-  if (hintsExhausted) {
-    return [
-      'All hints for this problem have been given (80% solution cap reached).',
-      'Do NOT provide any further hints.',
-      'You MAY still verify a step or answer they stated (right/wrong + why) per the rule below — verification is not a hint.',
-      'Otherwise respond with brief, warm encouragement only.',
-      'If the student has now arrived at the correct answer, set isProblemComplete to true.',
       NO_SOCRATIC,
       VERIFICATION_RULE,
       mcpGuidance,
