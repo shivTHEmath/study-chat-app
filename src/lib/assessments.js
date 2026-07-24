@@ -72,6 +72,12 @@ function publicAssessment(assessment, items = []) {
     calibrationError: assessment.calibration_error,
     itemCount: items.length || ASSESSMENT_ITEM_COUNT,
     durationMinutes: ASSESSMENT_DURATION_MINUTES,
+    // The student's own in-progress draft, so a reopened assessment restores
+    // what they had typed. Only ever their own answers (user-scoped row).
+    draftAnswers:
+      assessment.draft_answers && typeof assessment.draft_answers === 'object'
+        ? assessment.draft_answers
+        : null,
     items: items.map((item) => ({
       id: item.id,
       position: item.position,

@@ -47,6 +47,8 @@ export default function AssessmentPage() {
         }
         if (data.assessment?.status === 'in_progress') {
           setAssessment(data.assessment)
+          // Restore whatever was autosaved before the tab closed / expired.
+          if (data.assessment.draftAnswers) setAnswers(data.assessment.draftAnswers)
           setPhase('active')
         } else if (data.assessmentAvailable) {
           setPhase('intro')
@@ -67,6 +69,54 @@ export default function AssessmentPage() {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [phase])
+
+  // Latest answers, kept in a ref so the tab-hide flush below always sends the
+  // current values without re-registering listeners on every keystroke.
+  const answersRef = useRef(answers)
+  useEffect(() => {
+    answersRef.current = answers
+  }, [answers])
+
+  // Debounced autosave of the in-progress draft. Answers otherwise live only in
+  // browser state and reach the server just once, at submit — so a tab that
+  // closes, sleeps, or disconnects before the deadline loses everything typed.
+  // Grading is unaffected; this is purely a resume/recovery aid.
+  useEffect(() => {
+    if (phase !== 'active' || !assessment || submittedRef.current) return
+    const id = setTimeout(() => {
+      fetch('/api/assessments/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assessmentId: assessment.id, answers }),
+        keepalive: true,
+      }).catch(() => {})
+    }, 2000)
+    return () => clearTimeout(id)
+  }, [phase, assessment, answers])
+
+  // Flush immediately when the tab is hidden or unloaded — this is the case the
+  // debounce can't cover, and the one that actually lost a participant's work.
+  // sendBeacon survives page teardown; the Supabase auth cookie rides along.
+  useEffect(() => {
+    if (phase !== 'active' || !assessment) return
+    const flush = () => {
+      if (submittedRef.current) return
+      const payload = JSON.stringify({ assessmentId: assessment.id, answers: answersRef.current })
+      navigator.sendBeacon?.(
+        '/api/assessments/draft',
+        new Blob([payload], { type: 'application/json' })
+      )
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [phase, assessment])
 
   async function begin() {
     setStarting(true)
