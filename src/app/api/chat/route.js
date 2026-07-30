@@ -499,7 +499,7 @@ async function handleFollowUp({ admin, body, condition, grade, participantCounte
 // Classifies whether an incoming message starts a NEW problem or is a FOLLOW-UP
 // to the active one. Uses a fast, cheap model. Returns { intent, confidence }.
 // On any failure, returns confidence 0 so the UI asks the student to choose.
-const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.4-mini'
+const CLASSIFIER_MODEL = process.env.OPENAI_CLASSIFIER_MODEL || 'gpt-5.6-terra'
 
 async function classifyIntent(currentProblem, conversation, studentMessage) {
   try {
@@ -672,7 +672,7 @@ async function handleGeneralInquiry({ admin, body, grade, participantCounters, u
 
 async function askGeneralTutor(context, studentMessage) {
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
     // Includes reasoning-token headroom (see askTutor).
     max_completion_tokens: 3000,
     reasoning_effort: 'medium',
@@ -696,15 +696,15 @@ async function askGeneralTutor(context, studentMessage) {
 
 // Model used to compute the ground-truth answer when a NEW problem is submitted.
 // This step must be mathematically reliable — a wrong answer here poisons every
-// downstream hint and grade — so it defaults to a stronger solver model,
-// independent of the cheaper model used for follow-up chat. Falls back to
-// OPENAI_MODEL, then the mini default, if unset.
+// downstream hint and grade — so it stays separately overridable from the model
+// used for follow-up chat. Falls back to OPENAI_MODEL, then the shared default,
+// if unset.
 const SOLVER_MODEL =
-  process.env.OPENAI_SOLVER_MODEL || process.env.OPENAI_MODEL || 'gpt-5.4-mini'
+  process.env.OPENAI_SOLVER_MODEL || process.env.OPENAI_MODEL || 'gpt-5.6-terra'
 
 async function askTutor(runtimeContext, studentMessage, { model } = {}) {
   const response = await getOpenAI().chat.completions.create({
-    model: model || process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: model || process.env.OPENAI_MODEL || 'gpt-5.6-terra',
     // Reasoning tokens count against this budget; keep generous headroom so
     // deliberation can never starve the visible message to empty.
     max_completion_tokens: 10000,
